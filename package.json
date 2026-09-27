@@ -1,0 +1,54 @@
+{
+  "name": "libwa",
+  "version": "0.1.0",
+  "description": "Interaction-driven WhatsApp bot library with a pluggable backend architecture (Baileys first).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "docs", "LICENSE"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gustavo10Destroyer/libwa.git"
+  },
+  "homepage": "https://github.com/Gustavo10Destroyer/libwa#readme",
+  "bugs": {
+    "url": "https://github.com/Gustavo10Destroyer/libwa/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "check:exports": "node scripts/check-exports.mjs",
+    "verify": "npm run typecheck && npm run test && npm run lint && npm run build && npm run check:exports",
+    "prepublishOnly": "npm run verify"
+  },
+  "keywords": ["whatsapp", "bot", "baileys", "interactions", "typescript"],
+  "author": "Gustavo10Destroyer",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.14"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.13.5",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
