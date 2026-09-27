@@ -1,5 +1,8 @@
 # libwa
 
+> [!WARNING]
+> **Beta — vibe-coded project.** This library was created with AI-assisted "vibe coding", is in **beta**, and may contain bugs. APIs can change without notice — pin your versions and please [report issues](https://github.com/Gustavo10Destroyer/libwa/issues).
+
 Interaction-driven WhatsApp bot library for TypeScript/Node.js — a discord.js-like DX on top of a pluggable backend, with [Baileys](https://github.com/WhiskeySockets/Baileys) as the first provider.
 
 ```ts
