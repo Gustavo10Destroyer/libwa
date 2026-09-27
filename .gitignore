@@ -1,0 +1,25 @@
+# dependencies & builds
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.tgz
+
+# runtime state — never publish (contains logged-in credentials!)
+.libwa/
+auth_info*/
+
+# environment & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
