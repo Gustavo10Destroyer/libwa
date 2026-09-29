@@ -48,7 +48,7 @@ interface LoginDeferred {
  * - `client.messages` — send/edit/delete/react
  * - `client.groups` — fetch metadata and manage groups
  * - `client.commands` — command registry
- * - `client.users` — phone number ↔ linked id resolution
+ * - `client.users` — phone number ↔ linked id resolution, user fetches
  *
  * ```ts
  * const client = new Client();

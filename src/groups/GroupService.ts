@@ -31,7 +31,22 @@ export class GroupService {
     this.#entities = entities;
   }
 
-  /** Fetches full group metadata and returns a synchronized {@link Group}. */
+  /**
+   * Fetches full group metadata from the provider and returns a synchronized
+   * {@link Group}.
+   *
+   * The target may be a {@link Group} entity, a full group JID
+   * (`<id>@g.us`), or a bare group id (`120363…`, legacy `123456789-160…`) —
+   * bare ids get the `@g.us` suffix appended. Every call performs a provider
+   * round-trip (nothing is served from cache) and applies the fresh metadata
+   * to the cached group instance, so handlers see current members and
+   * settings afterwards.
+   *
+   * Provider failures surface as library errors: `NotFoundError`
+   * (`ERR_NOT_FOUND`) for unknown groups, `PermissionError`
+   * (`ERR_PERMISSION`) when the bot cannot see the group, and `BackendError`
+   * (`ERR_BACKEND`) for everything else.
+   */
   async fetch(target: GroupTarget): Promise<Group> {
     const chatId = this.#chatId(target);
     try {
@@ -129,7 +144,19 @@ export class GroupService {
     }
   }
 
+  /**
+   * Resolves a {@link GroupTarget} to the group chat id.
+   *
+   * Accepts a {@link Group} entity, a full group JID (`<id>@g.us`), or a bare
+   * group id (`120363…`, legacy `123456789-160…`) — bare ids get the
+   * `@g.us` suffix appended. Anything else passes through unchanged and
+   * fails at the provider.
+   */
   #chatId(target: GroupTarget): ChatId {
-    return typeof target === "string" ? target : target.id;
+    const id = typeof target === "string" ? target : target.id;
+    if (!id.includes("@") && /^\d+(-\d+)?$/.test(id)) {
+      return `${id}@g.us`;
+    }
+    return id;
   }
 }

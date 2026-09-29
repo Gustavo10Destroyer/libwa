@@ -136,6 +136,7 @@ export type {
   BackendReactRequest,
   BackendSendMessage,
   BackendSentMessage,
+  BackendUserLookup,
   OutboundContent,
   WhatsAppBackend,
 } from "./backend/Backend.js";

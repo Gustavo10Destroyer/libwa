@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Client } from "../src/Client.js";
 import { MemorySessionStore } from "../src/auth/MemorySessionStore.js";
-import { BackendError } from "../src/errors/index.js";
+import { BackendError, UnsupportedOperationError, ValidationError } from "../src/errors/index.js";
 import type { Interaction } from "../src/interactions/Interaction.js";
 import { CapableMockBackend, MockBackend, groupMetadataFixture } from "./helpers/MockBackend.js";
 import { groupParticipantsEvent, messageEvent, reactionEvent } from "./helpers/fixtures.js";
@@ -182,6 +182,143 @@ describe("client.users", () => {
 
     await expect(client.users.resolvePhone(LID)).rejects.toThrow(BackendError);
     await expect(client.users.resolveLid(PN)).rejects.toThrow(BackendError);
+  });
+});
+
+describe("client.users.fetch", () => {
+  it("accepts phone jids, legacy jids, device suffixes and bare digits", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    for (const input of [
+      PN,
+      "5511999999999@c.us",
+      "5511999999999:12@s.whatsapp.net",
+      "5511999999999",
+      "+5511999999999",
+    ]) {
+      const user = await client.users.fetch(input);
+      expect(user?.id).toBe(PN);
+      expect(user?.phone).toBe(PHONE_DIGITS);
+    }
+    expect(backend.userFetchCalls).toEqual(Array.from({ length: 5 }, () => PHONE_DIGITS));
+  });
+
+  it("resolves undefined when the provider reports no account", async () => {
+    const backend = new CapableMockBackend();
+    backend.userLookup = { exists: false };
+    const client = await readyClient(backend);
+
+    expect(await client.users.fetch(PN)).toBeUndefined();
+    expect(backend.userFetchCalls).toEqual([PHONE_DIGITS]);
+  });
+
+  it("checks linked ids under their resolved phone number", async () => {
+    const backend = new CapableMockBackend();
+    backend.phoneForLidResult = PHONE_DIGITS;
+    const client = await readyClient(backend);
+
+    const user = await client.users.fetch(LID);
+    expect(user?.id).toBe(LID);
+    expect(user?.phone).toBe(PHONE_DIGITS);
+    expect(backend.lidLookups).toEqual([LID]);
+    expect(backend.userFetchCalls).toEqual([PHONE_DIGITS]);
+    // The pair discovered on the way answers later lookups.
+    expect(client.users.altId(LID)).toBe(PN);
+  });
+
+  it("fetches linked ids through previously recorded pairs", async () => {
+    const backend = new CapableMockBackend();
+    backend.lidForPhoneResult = LID;
+    const client = await readyClient(backend);
+    await client.users.resolveLid(PN);
+
+    const user = await client.users.fetch(LID);
+    expect(user?.id).toBe(LID);
+    expect(user?.phone).toBe(PHONE_DIGITS);
+    expect(backend.userFetchCalls).toEqual([PHONE_DIGITS]);
+    expect(backend.lidLookups).toEqual([]);
+  });
+
+  it("resolves undefined for linked ids the provider cannot map", async () => {
+    const backend = new CapableMockBackend();
+    backend.phoneForLidResult = null;
+    const client = await readyClient(backend);
+
+    expect(await client.users.fetch(LID)).toBeUndefined();
+    expect(backend.userFetchCalls).toEqual([]);
+  });
+
+  it("prefers the lookup's name and falls back to the remembered push name", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+
+    backend.emit("message", messageEvent({ authorId: PN, authorName: "Gustavo" }));
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    // Without a provider name, the remembered push name answers.
+    const remembered = await client.users.fetch(PN);
+    expect(remembered?.name).toBe("Gustavo");
+
+    // A provider-supplied name wins — and becomes the remembered one.
+    backend.userLookup = { exists: true, name: "Fresh Name" };
+    const fresh = await client.users.fetch(PN);
+    expect(fresh?.name).toBe("Fresh Name");
+
+    backend.userLookup = { exists: true };
+    const after = await client.users.fetch(PN);
+    expect(after?.name).toBe("Fresh Name");
+  });
+
+  it("rejects malformed ids with ERR_INVALID_USER_ID", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    await expect(client.users.fetch("hello")).rejects.toBeInstanceOf(ValidationError);
+    for (const bad of [
+      "",
+      "   ",
+      GROUP,
+      "123@elsewhere",
+      "abc@lid",
+      "@lid",
+      "111@s.whatsapp.net2",
+    ]) {
+      await expect(client.users.fetch(bad)).rejects.toMatchObject({
+        code: "ERR_INVALID_USER_ID",
+      });
+    }
+    expect(backend.userFetchCalls).toEqual([]);
+  });
+
+  it("throws UnsupportedOperationError when capabilities are missing", async () => {
+    const plain = new MockBackend();
+    const plainClient = await readyClient(plain);
+    await expect(plainClient.users.fetch(PN)).rejects.toBeInstanceOf(UnsupportedOperationError);
+    await expect(plainClient.users.fetch(LID)).rejects.toBeInstanceOf(UnsupportedOperationError);
+
+    // Existence checks without linked-id resolution still fetch phone ids.
+    class LookupOnlyBackend extends MockBackend {
+      async fetchUser(): Promise<{ exists: boolean }> {
+        return { exists: true };
+      }
+    }
+    const lookupOnly = new LookupOnlyBackend();
+    const client = await readyClient(lookupOnly);
+    expect(await client.users.fetch(PN)).toBeDefined();
+    await expect(client.users.fetch(LID)).rejects.toMatchObject({ code: "ERR_UNSUPPORTED" });
+  });
+
+  it("propagates provider failures as backend errors", async () => {
+    const backend = new CapableMockBackend();
+    backend.fetchError = new Error("boom");
+    const client = await readyClient(backend);
+
+    await expect(client.users.fetch(PN)).rejects.toThrow(BackendError);
   });
 });
 

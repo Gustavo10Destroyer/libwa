@@ -97,6 +97,16 @@ export interface BackendGroupDescriptionRequest {
   readonly description: string | undefined;
 }
 
+/** Result of a provider-side user existence lookup (`fetchUser`). */
+export interface BackendUserLookup {
+  /** Whether the account exists and is registered on WhatsApp. */
+  readonly exists: boolean;
+  /** Display name reported by the lookup, when the provider supplies one. */
+  readonly name?: string | undefined;
+  /** Verified (business) name reported by the lookup, when available. */
+  readonly verifiedName?: string | undefined;
+}
+
 /** Everything a backend needs from the client in order to connect. */
 export interface BackendConnectOptions {
   /** Session slot to use (see `ClientOptions.sessionId`). */
@@ -170,4 +180,13 @@ export interface WhatsAppBackend {
    * linked id (`<digits>@lid`), or `null` when the provider cannot map it.
    */
   getLidForPhoneNumber?(phone: string): Promise<UserId | null>;
+  /**
+   * Checks whether an account is registered on WhatsApp.
+   *
+   * `phone` is the account's phone-number digits (international, no `+`);
+   * linked ids must be resolved to digits first (`getPhoneNumberForLid`),
+   * since providers key existence checks by phone number.
+   * {@link UserService.fetch} performs that composition for callers.
+   */
+  fetchUser?(phone: string): Promise<BackendUserLookup>;
 }

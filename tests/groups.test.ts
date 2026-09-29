@@ -35,6 +35,18 @@ describe("GroupService", () => {
     await expect(client.groups.fetch(GROUP_ID)).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  it("accepts bare group ids and appends the group suffix", async () => {
+    const bare = GROUP_ID.slice(0, -"@g.us".length);
+    const group = await client.groups.fetch(bare);
+    expect(group.id).toBe(GROUP_ID);
+    expect(backend.metadataCalls).toEqual([GROUP_ID]);
+
+    await client.groups.rename("123456789-1601234567890", "Legacy");
+    expect(backend.renameCalls).toEqual([
+      { chatId: "123456789-1601234567890@g.us", name: "Legacy" },
+    ]);
+  });
+
   it("wraps provider errors as backend errors", async () => {
     backend.metadataError = new Error("boom");
     await expect(client.groups.fetch(GROUP_ID)).rejects.toMatchObject({

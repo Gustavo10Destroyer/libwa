@@ -9,6 +9,7 @@ import type {
   BackendReactRequest,
   BackendSendMessage,
   BackendSentMessage,
+  BackendUserLookup,
   WhatsAppBackend,
 } from "../../src/backend/Backend.js";
 import type {
@@ -53,8 +54,8 @@ export function groupMetadataFixture(id: ChatId = "123456789@g.us"): GroupMetada
  * In-memory backend used by core tests.
  *
  * Implements only the mandatory contract: tests that need optional
- * capabilities (react/edit/delete/group ops/pairing/logout) use
- * {@link CapableMockBackend}.
+ * capabilities (react/edit/delete/group ops/pairing/logout/identity/user
+ * fetch) use {@link CapableMockBackend}.
  */
 export class MockBackend implements WhatsAppBackend {
   readonly id = "mock";
@@ -231,5 +232,22 @@ export class CapableMockBackend extends MockBackend {
     }
     this.phoneLookups.push(phone);
     return this.lidForPhoneResult;
+  }
+
+  // --- user fetch -------------------------------------------------------------
+
+  /** Phone digits passed to `fetchUser`, in call order. */
+  readonly userFetchCalls: string[] = [];
+  /** What `fetchUser` reports (default: the account exists). */
+  userLookup: BackendUserLookup = { exists: true };
+  /** When set, `fetchUser` throws it. */
+  fetchError: unknown;
+
+  async fetchUser(phone: string): Promise<BackendUserLookup> {
+    if (this.fetchError !== undefined) {
+      throw this.fetchError;
+    }
+    this.userFetchCalls.push(phone);
+    return this.userLookup;
   }
 }

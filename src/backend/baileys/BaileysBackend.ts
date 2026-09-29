@@ -32,6 +32,7 @@ import type {
   BackendReactRequest,
   BackendSendMessage,
   BackendSentMessage,
+  BackendUserLookup,
   WhatsAppBackend,
 } from "../Backend.js";
 import type {
@@ -358,6 +359,22 @@ class BaileysBackend implements WhatsAppBackend {
       return jidNormalizedUser(lid);
     } catch (error) {
       rethrowAsBackendError(`Resolve linked id for ${phone}`, error);
+    }
+  }
+
+  async fetchUser(phone: string): Promise<BackendUserLookup> {
+    const socket = this.#requireSocket();
+    try {
+      // USync contact query (`onWhatsApp`); linked ids never reach it — the
+      // service resolves them to digits first. The provider only reports
+      // existence for phone-addressed lookups, so names stay unset here.
+      const results = await socket.onWhatsApp(`${phone}@s.whatsapp.net`);
+      if (results === undefined) {
+        throw new Error("provider returned no user-lookup result");
+      }
+      return { exists: results.some((entry) => entry.exists) };
+    } catch (error) {
+      rethrowAsBackendError(`Fetch user ${phone}`, error);
     }
   }
 
