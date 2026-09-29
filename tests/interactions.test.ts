@@ -232,9 +232,45 @@ describe("InteractionFactory other events", () => {
     expect(interaction.action).toBe("promote");
     expect(interaction.isFromGroup()).toBe(true);
     expect(interaction.chat.kind).toBe("group");
+    expect(interaction.group).toBe(interaction.chat);
     expect(interaction.users.map((user) => user.id)).toEqual(["222@s.whatsapp.net"]);
+    expect(interaction.user?.id).toBe("222@s.whatsapp.net");
     expect(interaction.author?.id).toBe("111@s.whatsapp.net");
     expect(interaction.isFromMe).toBe(false);
+  });
+
+  it("exposes the affected user singular alongside users", () => {
+    const { factory } = harness();
+    const single = factory.fromGroupParticipants(
+      groupParticipantsEvent({ action: "remove", participantIds: ["333@s.whatsapp.net"] }),
+    );
+    expect(single.user?.id).toBe("333@s.whatsapp.net");
+    expect(single.user).toBe(single.users[0]);
+
+    const batch = factory.fromGroupParticipants(
+      groupParticipantsEvent({
+        action: "add",
+        participantIds: ["444@s.whatsapp.net", "555@s.whatsapp.net"],
+      }),
+    );
+    expect(batch.users).toHaveLength(2);
+    expect(batch.user?.id).toBe("444@s.whatsapp.net");
+  });
+
+  it("exposes the group on any group-chat interaction after isFromGroup()", () => {
+    const { factory } = harness();
+    const groupMessage: Interaction = factory.fromMessage(
+      messageEvent({ chatId: "123456789@g.us", chatKind: "group" }),
+    );
+    expect(groupMessage.isFromGroup()).toBe(true);
+    if (!groupMessage.isFromGroup()) return;
+    expect(groupMessage.group).toBeDefined();
+    expect(groupMessage.group.id).toBe("123456789@g.us");
+    expect(groupMessage.group).toBe(groupMessage.chat);
+
+    const direct: Interaction = factory.fromMessage(messageEvent());
+    expect(direct.isFromGroup()).toBe(false);
+    expect(direct.group).toBeUndefined();
   });
 
   it("marks group actions performed by the bot itself", () => {

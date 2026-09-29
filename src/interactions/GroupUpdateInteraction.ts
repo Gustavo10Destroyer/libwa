@@ -19,8 +19,8 @@ export interface GroupUpdateInit {
 export class GroupUpdateInteraction extends Interaction {
   override readonly type = InteractionType.GroupUpdate;
 
-  /** The group that changed. */
-  readonly group: Group;
+  /** The group that changed (fresh metadata, see `Client`). */
+  override readonly group: Group;
   /** What changed. */
   readonly changes: GroupUpdateChanges;
 

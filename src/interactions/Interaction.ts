@@ -1,5 +1,6 @@
 import type { Client } from "../Client.js";
 import type { Chat } from "../entities/Chat.js";
+import type { Group } from "../entities/Group.js";
 import type { Message } from "../entities/Message.js";
 import type { User } from "../entities/User.js";
 import type { ReplyContent } from "../messaging/types.js";
@@ -48,6 +49,13 @@ export abstract class Interaction {
   readonly client: Client;
   /** The chat this interaction belongs to. */
   readonly chat: Chat;
+  /**
+   * The group this interaction belongs to, when {@link isFromGroup} is true.
+   *
+   * For group interactions (participant changes, metadata updates) this is the
+   * same instance as {@link chat}, carrying the latest known group data.
+   */
+  readonly group: Group | undefined;
   /** Who caused this interaction (author, reactor, actor), when known. */
   readonly author: User | undefined;
   /** Whether the logged-in account caused this interaction. */
@@ -60,6 +68,7 @@ export abstract class Interaction {
     this.timestamp = init.timestamp;
     this.client = client;
     this.chat = init.chat;
+    this.group = init.chat.isGroup() ? init.chat : undefined;
     this.author = init.author;
     this.isFromMe = init.isFromMe;
     this.#replyToMessageId = init.replyToMessageId;
@@ -105,8 +114,13 @@ export abstract class Interaction {
     return this.type === InteractionType.List;
   }
 
-  /** True when the interaction happened inside a group chat. */
-  isFromGroup(): boolean {
+  /**
+   * True when the interaction happened inside a group chat.
+   *
+   * Narrows `this` so that {@link group} is known to be defined:
+   * `if (interaction.isFromGroup()) interaction.group.members` compiles.
+   */
+  isFromGroup(): this is Interaction & { group: Group } {
     return this.chat.isGroup();
   }
 

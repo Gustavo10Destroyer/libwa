@@ -21,8 +21,8 @@ export interface GroupParticipantInit {
 export class GroupParticipantInteraction extends Interaction {
   override readonly type = InteractionType.GroupParticipant;
 
-  /** The group the change happened in. */
-  readonly group: Group;
+  /** The group the change happened in (fresh metadata, see `Client`). */
+  override readonly group: Group;
   /** What happened to the participants. */
   readonly action: GroupParticipantAction;
   /** Affected users. */
@@ -39,6 +39,16 @@ export class GroupParticipantInteraction extends Interaction {
     this.group = init.group;
     this.action = init.action;
     this.users = init.users;
+  }
+
+  /**
+   * The affected user — `users[0]`.
+   *
+   * For single-participant changes (the common case) this is exactly who was
+   * added, removed, promoted or demoted. Use {@link users} for batch changes.
+   */
+  get user(): User | undefined {
+    return this.users[0];
   }
 
   /** True when users were added to the group. */
