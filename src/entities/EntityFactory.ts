@@ -33,6 +33,7 @@ export class EntityFactory {
   readonly #groupMetadata = new Map<ChatId, GroupMetadata>();
   readonly #lidToPn = new Map<UserId, UserId>();
   readonly #pnToLid = new Map<UserId, UserId>();
+  readonly #names = new Map<UserId, string>();
   #me: User | null = null;
 
   constructor(client: Client) {
@@ -46,9 +47,10 @@ export class EntityFactory {
 
   /** Records the logged-in account (called on connection open). */
   setSelf(self: BackendSelf): User {
+    this.rememberName(self.id, self.name);
     this.#me = new User({
       id: self.id,
-      name: self.name,
+      name: self.name ?? this.#names.get(self.id),
       isMe: true,
       phone: this.phoneFor(self.id),
     });
@@ -72,7 +74,27 @@ export class EntityFactory {
       if (phoneFromId(pn) === undefined) continue;
       this.#lidToPn.set(lid, pn);
       this.#pnToLid.set(pn, lid);
+      // A push name seen under one scheme applies to both.
+      const remembered = this.#names.get(lid) ?? this.#names.get(pn);
+      if (remembered !== undefined) {
+        this.#names.set(lid, remembered);
+        this.#names.set(pn, remembered);
+      }
     }
+  }
+
+  /**
+   * Remembers a display name (push name) seen for an id so later events that
+   * carry only the id — mentions, reactions, group members, membership
+   * changes — still know it. The name is stored under both addressing
+   * schemes once the pair is known (and re-stored when the pair arrives).
+   * Empty or absent names never overwrite a known one.
+   */
+  rememberName(id: UserId, name: string | undefined): void {
+    if (name === undefined || name === "") return;
+    this.#names.set(id, name);
+    const twin = this.altIdFor(id);
+    if (twin !== undefined) this.#names.set(twin, name);
   }
 
   /**
@@ -91,11 +113,17 @@ export class EntityFactory {
     return this.#lidToPn.get(id) ?? this.#pnToLid.get(id);
   }
 
-  /** Creates a user value (never cached; `isMe` is resolved automatically). */
+  /**
+   * Creates a user value (never cached; `isMe` is resolved automatically).
+   * When no name is given, the last push name seen for the id is used —
+   * so mentions, reactions and group members carry names learned from
+   * earlier messages.
+   */
   user(id: UserId, name?: string | undefined): User {
+    this.rememberName(id, name);
     return new User({
       id,
-      name,
+      name: name ?? this.#names.get(id),
       isMe: id === this.#me?.id,
       phone: this.phoneFor(id),
     });
