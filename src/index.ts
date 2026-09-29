@@ -67,6 +67,7 @@ export {
 export { Chat, Group } from "./entities/Chat.js";
 export type {
   ChatKind,
+  GroupMember,
   GroupMetadata,
   GroupParticipant,
   GroupParticipantAction,

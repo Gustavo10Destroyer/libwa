@@ -781,6 +781,7 @@ function mapParticipant(participant: ProviderGroupParticipant): DomainGroupParti
     altId: participantAltId(participant),
     role,
     name: participant.name ?? participant.notify ?? undefined,
+    username: present(participant.username) ? participant.username : undefined,
   };
 }
 

@@ -8,7 +8,7 @@ import { EntityFactory } from "../src/entities/EntityFactory.js";
 import type { Interaction } from "../src/interactions/Interaction.js";
 import { InteractionFactory } from "../src/interactions/InteractionFactory.js";
 import { InteractionType } from "../src/interactions/InteractionType.js";
-import { MockBackend } from "./helpers/MockBackend.js";
+import { MockBackend, groupMetadataFixture } from "./helpers/MockBackend.js";
 import {
   groupParticipantsEvent,
   groupUpdateEvent,
@@ -289,6 +289,86 @@ describe("InteractionFactory other events", () => {
     if (!interaction.isGroupUpdate()) return;
     expect(interaction.changes.name).toBe("Renamed Group");
     expect(interaction.group.name).toBe("Renamed Group");
+  });
+});
+
+describe("interaction.member", () => {
+  const GROUP_ID = "123456789@g.us";
+  const OWNER = "111@s.whatsapp.net";
+  const PLAIN = "222@s.whatsapp.net";
+
+  it("exposes the author's role, tag and user for group messages", () => {
+    const { factory, entities } = harness();
+    entities.applyGroupMetadata(groupMetadataFixture());
+    const interaction: Interaction = factory.fromMessage(
+      messageEvent({ chatId: GROUP_ID, chatKind: "group", authorId: OWNER, authorName: "Alice" }),
+    );
+
+    expect(interaction.isFromGroup()).toBe(true);
+    expect(interaction.member?.role).toBe("admin");
+    expect(interaction.member?.tag).toBe("Owner");
+    expect(interaction.member?.user).toBe(interaction.author);
+    expect(interaction.member?.user.id).toBe(OWNER);
+  });
+
+  it("exposes the member for reactions and group participant events too", () => {
+    const { factory, entities } = harness();
+    entities.applyGroupMetadata(groupMetadataFixture());
+
+    const reaction = factory.fromReaction(
+      reactionEvent({ chatId: GROUP_ID, chatKind: "group", reactorId: PLAIN }),
+    );
+    expect(reaction.member?.role).toBe("member");
+    expect(reaction.member?.tag).toBeUndefined();
+
+    const participants = factory.fromGroupParticipants(groupParticipantsEvent());
+    expect(participants.member?.role).toBe("admin");
+    expect(participants.member?.user).toBe(participants.author);
+  });
+
+  it("stays undefined without group context, metadata, author or participation", () => {
+    const { factory, entities } = harness();
+
+    // Direct chat.
+    expect(factory.fromMessage(messageEvent()).member).toBeUndefined();
+    // Group chat whose metadata is unknown.
+    const unknownMetadata = factory.fromMessage(
+      messageEvent({ chatId: GROUP_ID, chatKind: "group", authorId: OWNER }),
+    );
+    expect(unknownMetadata.member).toBeUndefined();
+    // Group metadata known, but the author is not a participant.
+    entities.applyGroupMetadata(groupMetadataFixture());
+    expect(
+      factory.fromMessage(
+        messageEvent({ chatId: GROUP_ID, chatKind: "group", authorId: "999@s.whatsapp.net" }),
+      ).member,
+    ).toBeUndefined();
+    // Group event without an author.
+    expect(factory.fromGroupUpdate(groupUpdateEvent()).member).toBeUndefined();
+  });
+
+  it("matches participants across id schemes and keeps the given user", () => {
+    const { factory, entities } = harness();
+    const LID = "987654321012345@lid";
+    const PN = "5511999999999@s.whatsapp.net";
+    entities.applyGroupMetadata({
+      ...groupMetadataFixture(),
+      participants: [{ id: LID, altId: PN, role: "admin", name: undefined, username: "gustavo" }],
+    });
+
+    const byPn = factory.fromMessage(
+      messageEvent({ chatId: GROUP_ID, chatKind: "group", authorId: PN, authorName: undefined }),
+    );
+    expect(byPn.member?.role).toBe("admin");
+    expect(byPn.member?.tag).toBe("gustavo");
+    expect(byPn.member?.user).toBe(byPn.author);
+    expect(byPn.member?.user.id).toBe(PN);
+
+    const byLid = factory.fromMessage(
+      messageEvent({ id: "msg-2", chatId: GROUP_ID, chatKind: "group", authorId: LID }),
+    );
+    expect(byLid.member?.role).toBe("admin");
+    expect(byLid.member?.tag).toBe("gustavo");
   });
 });
 

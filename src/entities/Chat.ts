@@ -96,10 +96,28 @@ export interface GroupParticipant {
   readonly altId?: UserId | undefined;
   readonly role: GroupRole;
   readonly name: string | undefined;
+  /** Provider-reported `@handle` for this participant, when present. */
+  readonly username?: string | undefined;
 }
 
 /** Administrative role of a group participant. */
 export type GroupRole = "member" | "admin" | "superadmin";
+
+/**
+ * Membership of a {@link User} inside one specific group.
+ *
+ * Group-scoped counterpart of {@link User}: roles and tags exist only per
+ * group, never globally, so a `GroupMember` always pairs the account-level
+ * `user` with the group-level `role` and `tag`.
+ */
+export interface GroupMember {
+  /** The account-level entity for this member (same instance as the interaction author when built from one). */
+  readonly user: User;
+  /** Role inside this group: `member`, `admin` or `superadmin`. */
+  readonly role: GroupRole;
+  /** The member's label in this group — the name recorded in group metadata, else their `@handle`. */
+  readonly tag: string | undefined;
+}
 
 /** Full, normalized metadata of a group. */
 export interface GroupMetadata {
@@ -176,9 +194,32 @@ export class Group extends Chat {
     return ownerId === undefined ? undefined : this.#makeUser(ownerId);
   }
 
-  /** Known members (empty until metadata has been fetched). */
-  get members(): readonly User[] {
-    return (this.#metadata?.participants ?? []).map((p) => this.#makeUser(p.id, p.name));
+  /** Known members with their group-scoped role/tag (empty until metadata has been fetched). */
+  get members(): readonly GroupMember[] {
+    return (this.#metadata?.participants ?? []).map((participant) => ({
+      user: this.#makeUser(participant.id, participant.name),
+      role: participant.role,
+      tag: participant.name ?? participant.username ?? undefined,
+    }));
+  }
+
+  /**
+   * Membership of one account in this group — `role`, `tag` and `user` — when
+   * metadata is known and the account is a participant. Accepts a `User`
+   * entity (kept as-is inside the member) or a raw id in either addressing
+   * scheme; ids are matched across schemes through recorded id pairs.
+   */
+  member(target: User | UserId): GroupMember | undefined {
+    const id = typeof target === "string" ? target : target.id;
+    const participant = this.#findParticipant(id);
+    if (participant === undefined) {
+      return undefined;
+    }
+    return {
+      user: typeof target === "string" ? this.#makeUser(participant.id, participant.name) : target,
+      role: participant.role,
+      tag: participant.name ?? participant.username ?? undefined,
+    };
   }
 
   /** Number of known members, or `undefined` when metadata is unknown. */
@@ -241,5 +282,21 @@ export class Group extends Chat {
       return this.#entities.user(id, name);
     }
     return new User({ id, name, isMe: this.client.me?.id === id });
+  }
+
+  /** Finds a participant record, matching the id against both addressing schemes. */
+  #findParticipant(id: UserId): GroupParticipant | undefined {
+    const participants = this.#metadata?.participants;
+    if (participants === undefined) {
+      return undefined;
+    }
+    const alt = this.#entities?.altIdFor(id);
+    return participants.find(
+      (participant) =>
+        participant.id === id ||
+        (alt !== undefined && participant.id === alt) ||
+        (participant.altId !== undefined &&
+          (participant.altId === id || (alt !== undefined && participant.altId === alt))),
+    );
   }
 }

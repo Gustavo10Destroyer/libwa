@@ -9,6 +9,7 @@ import type { CommandDefinition } from "./commands/CommandDefinition.js";
 import { CommandRegistry } from "./commands/CommandRegistry.js";
 import { DisconnectReason, FATAL_DISCONNECT_REASONS } from "./core/DisconnectReason.js";
 import type { ChatId, Unsubscribe } from "./core/ids.js";
+import type { ChatKind } from "./entities/Chat.js";
 import { EntityFactory } from "./entities/EntityFactory.js";
 import type { User } from "./entities/User.js";
 import {
@@ -331,13 +332,19 @@ export class Client {
         this.#onConnectionUpdate(update);
       }),
       this.#backend.on("message", (event) => {
-        void this.#dispatch(this.#factory.fromMessage(event));
+        void this.#dispatchChat(event.chatKind, event.chatId, () =>
+          this.#factory.fromMessage(event),
+        );
       }),
       this.#backend.on("messageUpdate", (event) => {
-        void this.#dispatch(this.#factory.fromMessageUpdate(event));
+        void this.#dispatchChat(event.chatKind, event.chatId, () =>
+          this.#factory.fromMessageUpdate(event),
+        );
       }),
       this.#backend.on("reaction", (event) => {
-        void this.#dispatch(this.#factory.fromReaction(event));
+        void this.#dispatchChat(event.chatKind, event.chatId, () =>
+          this.#factory.fromReaction(event),
+        );
       }),
       this.#backend.on("groupParticipants", (event) => {
         void this.#dispatchGroup(event.groupId, () => this.#factory.fromGroupParticipants(event));
@@ -396,6 +403,32 @@ export class Client {
       this.#logger.warn("[group refresh]", toError(error).message);
     }
     await this.#dispatch(create());
+  }
+
+  /**
+   * Builds and dispatches a message-family interaction (message, command,
+   * reaction, edit/delete). Group chats first ensure metadata is known —
+   * fetching it when nothing is cached yet, once per group — so
+   * `interaction.member` can answer with the author's role and tag. A failed
+   * fetch logs a warning and dispatch proceeds without metadata, never
+   * blocked or dropped.
+   */
+  async #dispatchChat(kind: ChatKind, chatId: ChatId, create: () => Interaction): Promise<void> {
+    if (kind === "group" && this.#entities.group(chatId).metadata === undefined) {
+      try {
+        await this.groups.fetch(chatId);
+      } catch (error) {
+        this.#logger.warn("[group refresh]", toError(error).message);
+      }
+    }
+    let interaction: Interaction;
+    try {
+      interaction = create();
+    } catch (error) {
+      this.#handleError(error, "interaction build");
+      return;
+    }
+    await this.#dispatch(interaction);
   }
 
   #commandAllowed(command: CommandDefinition, interaction: Interaction): boolean {

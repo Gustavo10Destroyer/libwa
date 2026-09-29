@@ -101,7 +101,7 @@ describe("client.users", () => {
     const group = await client.groups.fetch(GROUP);
 
     expect(client.users.phone(LID)).toBe(PHONE_DIGITS);
-    expect(group.members.find((member) => member.id === LID)?.phone).toBe(PHONE_DIGITS);
+    expect(group.members.find((member) => member.user.id === LID)?.user.phone).toBe(PHONE_DIGITS);
   });
 
   it("records id pairs from membership events, including departed members", async () => {
@@ -404,6 +404,6 @@ describe("push-name memory", () => {
     };
     const group = await client.groups.fetch(GROUP);
 
-    expect(group.members.find((member) => member.id === LID)?.name).toBe("Gustavo");
+    expect(group.members.find((member) => member.user.id === LID)?.user.name).toBe("Gustavo");
   });
 });

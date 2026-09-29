@@ -7,6 +7,7 @@
 export {
   Group,
   type GroupInit,
+  type GroupMember,
   type GroupMetadata,
   type GroupParticipant,
   type GroupParticipantAction,

@@ -974,6 +974,23 @@ describe("mapGroupMetadata", () => {
       locked: false,
     });
   });
+
+  it("maps participant usernames and drops empty ones", () => {
+    const mapped = mapGroupMetadata({
+      id: "123456789@g.us",
+      subject: "Handles",
+      participants: [
+        { id: "111@s.whatsapp.net", admin: "admin", username: "gustavo" },
+        { id: "222@s.whatsapp.net", admin: null, username: "" },
+        { id: "333@s.whatsapp.net", admin: null },
+      ] as ProviderGroupParticipant[],
+    } as unknown as ProviderGroupMetadata);
+    expect(mapped.participants.map((participant) => participant.username)).toEqual([
+      "gustavo",
+      undefined,
+      undefined,
+    ]);
+  });
 });
 
 describe("id pair capture", () => {

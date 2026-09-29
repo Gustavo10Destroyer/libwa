@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Client } from "../src/Client.js";
 import { MemorySessionStore } from "../src/auth/MemorySessionStore.js";
+import { EntityFactory } from "../src/entities/EntityFactory.js";
 import { NotFoundError, ValidationError } from "../src/errors/index.js";
 import { CapableMockBackend, MockBackend, groupMetadataFixture } from "./helpers/MockBackend.js";
 
@@ -22,10 +23,12 @@ describe("GroupService", () => {
     expect(group.description).toBe("A group for tests");
     expect(group.owner?.id).toBe("111@s.whatsapp.net");
     expect(group.memberCount).toBe(2);
-    expect(group.members.map((member) => member.id)).toEqual([
+    expect(group.members.map((member) => member.user.id)).toEqual([
       "111@s.whatsapp.net",
       "222@s.whatsapp.net",
     ]);
+    expect(group.members.map((member) => member.role)).toEqual(["admin", "member"]);
+    expect(group.members[0]?.tag).toBe("Owner");
     expect(group.announceOnly).toBe(false);
     expect(group.metadata?.createdAt).toEqual(new Date(1_700_000_000_000));
   });
@@ -115,6 +118,60 @@ describe("GroupService", () => {
     await expect(plainClient.groups.setDescription(GROUP_ID, "x")).rejects.toMatchObject({
       name: "UnsupportedOperationError",
     });
+  });
+});
+
+describe("Group member lookups", () => {
+  let backend: CapableMockBackend;
+  let client: Client;
+
+  beforeEach(() => {
+    backend = new CapableMockBackend();
+    client = new Client({ backend, sessionStore: new MemorySessionStore() });
+  });
+
+  it("looks up membership by id and by user instance", async () => {
+    const group = await client.groups.fetch(GROUP_ID);
+
+    const byId = group.member("111@s.whatsapp.net");
+    expect(byId?.role).toBe("admin");
+    expect(byId?.tag).toBe("Owner");
+    expect(byId?.user.id).toBe("111@s.whatsapp.net");
+
+    const owner = byId?.user;
+    expect(owner).toBeDefined();
+    if (owner === undefined) throw new Error("expected the owner member");
+    expect(group.member(owner)).toEqual(byId);
+
+    const plain = group.member("222@s.whatsapp.net");
+    expect(plain?.role).toBe("member");
+    expect(plain?.tag).toBeUndefined();
+    expect(group.member("999@s.whatsapp.net")).toBeUndefined();
+  });
+
+  it("matches across id schemes and tags participants by username", async () => {
+    const LID = "987654321012345@lid";
+    const PN = "5511999999999@s.whatsapp.net";
+    const fixture = groupMetadataFixture(GROUP_ID);
+    backend.metadataFixture = {
+      ...fixture,
+      participants: [
+        { id: LID, altId: PN, role: "superadmin", name: undefined, username: "gustavo" },
+      ],
+    };
+    const group = await client.groups.fetch(GROUP_ID);
+
+    expect(group.member(LID)?.role).toBe("superadmin");
+    expect(group.member(LID)?.tag).toBe("gustavo");
+    expect(group.member(PN)?.role).toBe("superadmin");
+    expect(group.member(PN)?.tag).toBe("gustavo");
+  });
+
+  it("stays undefined while metadata is unknown", () => {
+    const entities = new EntityFactory(client);
+    const group = entities.group(GROUP_ID);
+    expect(group.member("111@s.whatsapp.net")).toBeUndefined();
+    expect(group.members).toEqual([]);
   });
 });
 

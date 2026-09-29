@@ -1,6 +1,6 @@
 import type { Client } from "../Client.js";
 import type { Chat } from "../entities/Chat.js";
-import type { Group } from "../entities/Group.js";
+import type { Group, GroupMember } from "../entities/Group.js";
 import type { Message } from "../entities/Message.js";
 import type { User } from "../entities/User.js";
 import type { ReplyContent } from "../messaging/types.js";
@@ -58,6 +58,16 @@ export abstract class Interaction {
   readonly group: Group | undefined;
   /** Who caused this interaction (author, reactor, actor), when known. */
   readonly author: User | undefined;
+  /**
+   * The author's membership in {@link group} — role and tag inside this
+   * specific group, wrapping the same {@link author} entity.
+   *
+   * `undefined` outside group chats, for system events without an author,
+   * when group metadata is not known yet, or when the author is not a
+   * participant of the group. Group-scoped by design: roles and tags never
+   * live on {@link User}.
+   */
+  readonly member: GroupMember | undefined;
   /** Whether the logged-in account caused this interaction. */
   readonly isFromMe: boolean;
 
@@ -70,6 +80,10 @@ export abstract class Interaction {
     this.chat = init.chat;
     this.group = init.chat.isGroup() ? init.chat : undefined;
     this.author = init.author;
+    this.member =
+      this.group !== undefined && init.author !== undefined
+        ? this.group.member(init.author)
+        : undefined;
     this.isFromMe = init.isFromMe;
     this.#replyToMessageId = init.replyToMessageId;
   }

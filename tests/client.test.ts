@@ -7,7 +7,12 @@ import { DisconnectReason } from "../src/core/DisconnectReason.js";
 import { ConnectionError, ValidationError } from "../src/errors/index.js";
 import type { Interaction } from "../src/interactions/Interaction.js";
 import { CapableMockBackend, MockBackend } from "./helpers/MockBackend.js";
-import { groupParticipantsEvent, groupUpdateEvent, messageEvent } from "./helpers/fixtures.js";
+import {
+  groupParticipantsEvent,
+  groupUpdateEvent,
+  messageEvent,
+  reactionEvent,
+} from "./helpers/fixtures.js";
 
 const SELF_ID = "5511888888888@s.whatsapp.net";
 
@@ -283,6 +288,87 @@ describe("Client interaction dispatch", () => {
     }
     expect(first.group.metadata).toBeUndefined();
     expect(first.users.map((user) => user.id)).toEqual(["222@s.whatsapp.net"]);
+    expect(failing.metadataCalls).toEqual(["123456789@g.us"]);
+  });
+
+  it("fetches group metadata once for group messages and answers interaction.member", async () => {
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+
+    backend.emit(
+      "message",
+      messageEvent({ chatId: "123456789@g.us", chatKind: "group", authorId: "111@s.whatsapp.net" }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
+    expect(received[0]?.member?.role).toBe("admin");
+    expect(received[0]?.member?.tag).toBe("Owner");
+
+    // The cached metadata answers the next messages without another fetch.
+    backend.emit(
+      "message",
+      messageEvent({
+        id: "msg-2",
+        chatId: "123456789@g.us",
+        chatKind: "group",
+        authorId: "222@s.whatsapp.net",
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    expect(received[1]?.member?.role).toBe("member");
+    expect(received[1]?.member?.tag).toBeUndefined();
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    // Reactions in the same group reuse the cached metadata too.
+    backend.emit(
+      "reaction",
+      reactionEvent({
+        chatId: "123456789@g.us",
+        chatKind: "group",
+        reactorId: "222@s.whatsapp.net",
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(3));
+    expect(received[2]?.member?.role).toBe("member");
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    // Direct messages never touch group metadata.
+    backend.emit("message", messageEvent({ id: "msg-3" }));
+    await vi.waitFor(() => expect(received).toHaveLength(4));
+    expect(backend.metadataCalls).toHaveLength(1);
+  });
+
+  it("dispatches group messages even when the metadata fetch fails", async () => {
+    const warns: unknown[][] = [];
+    const logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (...args: unknown[]) => {
+        warns.push(args);
+      },
+      error: () => {},
+    };
+    const failing = new CapableMockBackend();
+    const { client: failingClient } = createClient(failing, { logger });
+    await login(failingClient, failing);
+    failing.metadataError = new Error("metadata unavailable");
+
+    const received: Interaction[] = [];
+    failingClient.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+    failing.emit(
+      "message",
+      messageEvent({ chatId: "123456789@g.us", chatKind: "group", authorId: "111@s.whatsapp.net" }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    expect(JSON.stringify(warns)).toContain("[group refresh]");
+    expect(received[0]?.isMessage()).toBe(true);
+    expect(received[0]?.group?.metadata).toBeUndefined();
+    expect(received[0]?.member).toBeUndefined();
     expect(failing.metadataCalls).toEqual(["123456789@g.us"]);
   });
 
