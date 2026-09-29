@@ -8,7 +8,7 @@ import type { BackendConnectionUpdate } from "./backend/events.js";
 import type { CommandDefinition } from "./commands/CommandDefinition.js";
 import { CommandRegistry } from "./commands/CommandRegistry.js";
 import { DisconnectReason, FATAL_DISCONNECT_REASONS } from "./core/DisconnectReason.js";
-import type { Unsubscribe } from "./core/ids.js";
+import type { ChatId, Unsubscribe } from "./core/ids.js";
 import { EntityFactory } from "./entities/EntityFactory.js";
 import type { User } from "./entities/User.js";
 import {
@@ -335,10 +335,10 @@ export class Client {
         void this.#dispatch(this.#factory.fromReaction(event));
       }),
       this.#backend.on("groupParticipants", (event) => {
-        void this.#dispatch(this.#factory.fromGroupParticipants(event));
+        void this.#dispatchGroup(event.groupId, () => this.#factory.fromGroupParticipants(event));
       }),
       this.#backend.on("groupUpdate", (event) => {
-        void this.#dispatch(this.#factory.fromGroupUpdate(event));
+        void this.#dispatchGroup(event.groupId, () => this.#factory.fromGroupUpdate(event));
       }),
     );
   }
@@ -376,6 +376,21 @@ export class Client {
     } catch (error) {
       this.#handleError(error, "middleware");
     }
+  }
+
+  /**
+   * Refreshes the group's metadata, then builds and dispatches a group
+   * interaction, so `interaction.group` carries current members and metadata
+   * at dispatch time. A failed refresh is logged as a warning and the cached
+   * state is used instead — dispatch is never blocked or dropped by it.
+   */
+  async #dispatchGroup(groupId: ChatId, create: () => Interaction): Promise<void> {
+    try {
+      await this.groups.fetch(groupId);
+    } catch (error) {
+      this.#logger.warn("[group refresh]", toError(error).message);
+    }
+    await this.#dispatch(create());
   }
 
   #commandAllowed(command: CommandDefinition, interaction: Interaction): boolean {

@@ -227,6 +227,65 @@ describe("Client interaction dispatch", () => {
     expect(received[1]?.isGroupUpdate()).toBe(true);
   });
 
+  it("refreshes group metadata before dispatching group interactions", async () => {
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+
+    backend.emit("groupParticipants", groupParticipantsEvent());
+    backend.emit("groupUpdate", groupUpdateEvent());
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+
+    expect(backend.metadataCalls).toEqual(["123456789@g.us", "123456789@g.us"]);
+    const participants = received[0];
+    if (participants === undefined || !participants.isGroupParticipantUpdate()) {
+      throw new Error("expected a group participant interaction");
+    }
+    expect(participants.group.metadata?.participants).toHaveLength(2);
+    expect(participants.group.memberCount).toBe(2);
+    expect(participants.user?.id).toBe("222@s.whatsapp.net");
+
+    const update = received[1];
+    if (update === undefined || !update.isGroupUpdate()) {
+      throw new Error("expected a group update interaction");
+    }
+    expect(update.group.metadata?.participants).toHaveLength(2);
+    expect(update.group.name).toBe("Renamed Group");
+  });
+
+  it("dispatches group interactions even when the metadata refresh fails", async () => {
+    const warns: unknown[][] = [];
+    const logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (...args: unknown[]) => {
+        warns.push(args);
+      },
+      error: () => {},
+    };
+    const failing = new CapableMockBackend();
+    const { client: failingClient } = createClient(failing, { logger });
+    await login(failingClient, failing);
+    failing.metadataError = new Error("metadata unavailable");
+
+    const received: Interaction[] = [];
+    failingClient.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+    failing.emit("groupParticipants", groupParticipantsEvent());
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    expect(JSON.stringify(warns)).toContain("[group refresh]");
+    const first = received[0];
+    if (first === undefined || !first.isGroupParticipantUpdate()) {
+      throw new Error("expected a group participant interaction");
+    }
+    expect(first.group.metadata).toBeUndefined();
+    expect(first.users.map((user) => user.id)).toEqual(["222@s.whatsapp.net"]);
+    expect(failing.metadataCalls).toEqual(["123456789@g.us"]);
+  });
+
   it("executes matching commands with parsed arguments", async () => {
     const executed: Interaction[] = [];
     client.commands.register({

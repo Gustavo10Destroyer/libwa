@@ -65,6 +65,8 @@ export class MockBackend implements WhatsAppBackend {
   sendError: unknown;
   metadataError: unknown;
   media: Uint8Array = new Uint8Array([1, 2, 3]);
+  /** Group ids passed to `getGroupMetadata`, in call order. */
+  readonly metadataCalls: ChatId[] = [];
 
   connected = false;
 
@@ -106,6 +108,7 @@ export class MockBackend implements WhatsAppBackend {
   }
 
   async getGroupMetadata(chatId: ChatId): Promise<GroupMetadata> {
+    this.metadataCalls.push(chatId);
     if (this.metadataError !== undefined) {
       throw this.metadataError;
     }
