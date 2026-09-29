@@ -547,6 +547,72 @@ describe("mapIncomingMessage", () => {
     ).toBeNull();
   });
 
+  it("keeps content when sender-key distribution rides along", () => {
+    const { context } = harness();
+    // The first message a sender delivers in a group carries the sender-key
+    // distribution next to the real text — the plumbing must not shadow it.
+    const event = mapIncomingMessage(
+      {
+        key: {
+          remoteJid: "123456789@g.us",
+          id: "F1",
+          fromMe: false,
+          participant: "111@s.whatsapp.net",
+        },
+        message: {
+          messageContextInfo: {},
+          senderKeyDistributionMessage: {
+            groupId: "123456789@g.us",
+            axolotlSenderKeyDistributionMessage: new Uint8Array([1, 2, 3]),
+          },
+          conversation: "first message!",
+        },
+        messageTimestamp: TIMESTAMP,
+        pushName: "Alice",
+      },
+      context,
+    );
+    expect(event).not.toBeNull();
+    expect(event?.content).toEqual({ kind: "text", text: "first message!" });
+    expect(event?.authorName).toBe("Alice");
+    expect(event?.chatKind).toBe("group");
+    expect(event?.authorId).toBe("111@s.whatsapp.net");
+
+    // A distribution-only stanza carries nothing user-visible and stays skipped.
+    expect(
+      mapIncomingMessage(
+        {
+          key: {
+            remoteJid: "123456789@g.us",
+            id: "F2",
+            fromMe: false,
+            participant: "111@s.whatsapp.net",
+          },
+          message: {
+            senderKeyDistributionMessage: { groupId: "123456789@g.us" },
+          },
+        },
+        context,
+      ),
+    ).toBeNull();
+    expect(
+      mapIncomingMessage(
+        {
+          key: {
+            remoteJid: "123456789@g.us",
+            id: "F3",
+            fromMe: false,
+            participant: "111@s.whatsapp.net",
+          },
+          message: {
+            fastRatchetKeySenderKeyDistributionMessage: { groupId: "123456789@g.us" },
+          },
+        },
+        context,
+      ),
+    ).toBeNull();
+  });
+
   it("normalizes unknown content kinds", () => {
     const { context } = harness();
     const event = mapIncomingMessage(

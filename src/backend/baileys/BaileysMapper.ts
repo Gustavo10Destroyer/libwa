@@ -127,8 +127,24 @@ function unwrapMessage(message: proto.IMessage | null | undefined): proto.IMessa
   return current;
 }
 
-/** Content keys that never represent user-visible content on their own. */
-const NON_CONTENT_KEYS: ReadonlySet<string> = new Set(["messageContextInfo", "botInvokeMessage"]);
+/**
+ * Content keys that never represent user-visible content on their own.
+ *
+ * Protocol/reaction/poll-vote messages surface through other events instead;
+ * the sender-key distribution and context keys are invisible plumbing that
+ * rides along *with* real content — notably on the first message a sender
+ * delivers in a group — so they must never shadow a payload that does carry
+ * content.
+ */
+const NON_CONTENT_KEYS: ReadonlySet<string> = new Set([
+  "messageContextInfo",
+  "botInvokeMessage",
+  "protocolMessage",
+  "reactionMessage",
+  "pollUpdateMessage",
+  "senderKeyDistributionMessage",
+  "fastRatchetKeySenderKeyDistributionMessage",
+]);
 
 interface ContentExtraction {
   readonly content: MessageContent;
@@ -223,8 +239,11 @@ function nativeFlowButtonId(response: proto.Message.IInteractiveResponseMessage)
 
 /**
  * Extracts normalized content (and its context info) from an inner provider
- * content message. Returns `null` for payloads that surface through other
- * events instead (protocol/reaction/poll-vote messages).
+ * content message. Real content wins over invisible plumbing keys (the first
+ * message a sender delivers in a group carries a sender-key distribution
+ * next to its text), so those keys are filtered only at the fallback stage.
+ * Returns `null` for payloads that surface through other events instead
+ * (protocol/reaction/poll-vote messages) or carry no user-visible content.
  */
 function extractContent(
   message: proto.IMessage,
@@ -232,15 +251,6 @@ function extractContent(
   chatId: ChatId,
   messageId: string,
 ): ContentExtraction | null {
-  if (
-    message.protocolMessage != null ||
-    message.reactionMessage != null ||
-    message.pollUpdateMessage != null ||
-    message.senderKeyDistributionMessage != null
-  ) {
-    return null;
-  }
-
   if (typeof message.conversation === "string") {
     return { content: { kind: "text", text: message.conversation }, context: undefined };
   }
