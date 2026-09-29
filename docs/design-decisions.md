@@ -115,3 +115,19 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 - **Biome over ESLint+Prettier** — one fast tool; 2-space formatting is authoritative (legacy tabs were normalized).
 - **tsconfig split** — the base config typechecks `src`+`tests`+`examples` (no emit); `tsconfig.build.json` adds `rootDir: src`, declarations and sourcemaps for `dist/`.
 - **Examples import `"libwa"`** (mapped to `src/index.ts` via `paths`) so they compile exactly like consumer code, while tests import `src/…` to reach internals.
+
+## 17. Group membership is group-scoped
+
+**Context.** A role (`admin`) and a tag (group label) only mean something inside one group, while `User` is account-level and recreated per event — storing membership on it would be wrong and stale.
+
+**Decision.** `Group.members` yields `GroupMember { user, role, tag }` and `Group.member(id | user)` resolves one account across both id schemes; every interaction computes `member` from `group` + `author` at construction. Group message-family interactions fetch metadata once per group before dispatch (participant/update events always refresh), so the answer is current without a refetch per message.
+
+**Consequence.** `interaction.member?.role === "admin"` works everywhere in group chats; `User` stays a cheap value object. Breaking in 0.2.0: `Group.members` returns `GroupMember[]`, not `User[]`.
+
+## 18. Profile enrichment rides optional capabilities
+
+**Context.** Profile pictures, about texts and business classification are useful, but not every provider can answer them — and WhatsApp has no single "business flag", so classification is a probe of the business profile.
+
+**Decision.** `client.users.pictureUrl(id, type?)`, `about(id)` and `accountType(id)` normalize ids like `fetch()` and delegate to optional caps (`getProfilePictureUrl`, `getAbout`, `getBusinessProfile`). Privacy-hidden pictures/about resolve `undefined`; provider failures become `BackendError`; missing caps become `UnsupportedOperationError`.
+
+**Consequence.** `User` stays offline-friendly (no eager profile I/O during dispatch); backends without the caps pay nothing.

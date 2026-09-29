@@ -28,7 +28,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 
 - Resolves options (`ClientOptions` → defaults) and constructs services.
 - Subscribes to the six normalized backend events exactly once per instance.
-- Converts backend events into interactions (`InteractionFactory`) — refreshing the group's metadata first for group participant/update events, so interactions carry current members — runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
+- Converts backend events into interactions (`InteractionFactory`) — refreshing group metadata first for participant/update events, and fetching it (once per group, cached afterwards) before message-family interactions in group chats — so interactions carry current members and `interaction.member` can answer with the author's role and tag; runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
 - Owns **reconnection policy** (backoff, attempt counting, fatal-reason classification). Backends only report *why* a connection closed.
 - Owns **login bookkeeping**: `login()` returns a deferred promise resolved on first `ready`, rejected on fatal/auth failure or when retries are exhausted.
 
@@ -39,7 +39,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 | `MessageService` (`client.messages`) | Validates/normalizes `ReplyContent`, resolves send targets, delegates to the backend, converts confirmations back into domain `Message`s. React/edit/delete with capability checks. |
 | `GroupService` (`client.groups`) | Metadata fetch + member/setting operations, keeping cached group metadata in sync. |
 | `CommandRegistry` (`client.commands`) | Registration/aliases/uniqueness + prefix parsing. Data only; execution happens in the dispatch pipeline. |
-| `UserService` (`client.users`) | Phone number ↔ linked id (`@lid`) resolution (recorded id pairs answer instantly, `getPhoneNumberForLid`/`getLidForPhoneNumber` fill the gaps) plus `fetch(id)` — existence check with name under either id scheme, resolved to phone digits. |
+| `UserService` (`client.users`) | Phone number ↔ linked id (`@lid`) resolution (recorded id pairs answer instantly, `getPhoneNumberForLid`/`getLidForPhoneNumber` fill the gaps), `fetch(id)` — existence check with name under either id scheme, resolved to phone digits — and profile enrichment: `pictureUrl(id, type?)`, `about(id)` and `accountType(id)`, each behind its own optional capability. |
 
 ### Entities
 
@@ -48,11 +48,12 @@ Value objects built by `EntityFactory`:
 - `Chat` / `Group` (one file, `Group extends Chat`; `isGroup()` is a narrowing guard), `User`, `Message`.
 - Chats and group metadata are **cached by id** so identity is stable across events (`interaction.message.chat === interaction.chat`); users are cheap and recreated.
 - **Display names are remembered.** Every push name (and provider-supplied lookup name) is stored under both id schemes, so later id-only payloads — mentions, reactions, group members, fetch results — still carry `user.name`.
+- **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role, tag }`) and `Group.member(id | user)` looks one account up across both id schemes — roles and tags never leak onto the account-level `User`.
 - Entities expose intent-level actions (`chat.send`, `message.react`, `group.addMembers`) that delegate back to services — never to a provider.
 
 ### Interactions
 
-`Interaction` (abstract) carries `id`, `timestamp`, `chat`, `author`, `isFromMe` plus `reply()` and the guard family. Concrete subclasses add event-specific data (`CommandInteraction.args`, `ReactionInteraction.emoji`, …). The discriminator (`InteractionType`) and class hierarchy are kept in sync: `CommandInteraction extends MessageInteraction`, so `isMessage()` is true for commands too.
+`Interaction` (abstract) carries `id`, `timestamp`, `chat`, `author`, `member` (the author's `GroupMember` in `group`, when applicable), `isFromMe` plus `reply()` and the guard family. Concrete subclasses add event-specific data (`CommandInteraction.args`, `ReactionInteraction.emoji`, …). The discriminator (`InteractionType`) and class hierarchy are kept in sync: `CommandInteraction extends MessageInteraction`, so `isMessage()` is true for commands too.
 
 ## Event pipeline
 
@@ -91,7 +92,7 @@ sendMessage(request) · downloadMedia(request) · getGroupMetadata(chatId)
 on(event, listener) → Unsubscribe
 ```
 
-plus **optional capabilities** (`react?`, `editMessage?`, `deleteMessage?`, `updateGroupParticipants?`, `updateGroupName?`, `updateGroupDescription?`, `requestPairingCode?`, `logout?`, `getPhoneNumberForLid?`, `getLidForPhoneNumber?`, `fetchUser?`). The core checks for the method before calling and raises `UnsupportedOperationError` when absent — capability discovery stays honest instead of pretending every provider can do everything.
+plus **optional capabilities** (`react?`, `editMessage?`, `deleteMessage?`, `updateGroupParticipants?`, `updateGroupName?`, `updateGroupDescription?`, `requestPairingCode?`, `logout?`, `getPhoneNumberForLid?`, `getLidForPhoneNumber?`, `fetchUser?`, `getProfilePictureUrl?`, `getAbout?`, `getBusinessProfile?`). The core checks for the method before calling and raises `UnsupportedOperationError` when absent — capability discovery stays honest instead of pretending every provider can do everything.
 
 `BackendConnectOptions` is the backend's lifeline into infrastructure: `sessionId`, `sessionStore`, `logger`, `pairingPhoneNumber`. Backends persist **only** through the store they are given.
 
@@ -101,7 +102,7 @@ Normalized events (`BackendEventMap`) use domain types exclusively (`ChatId`, `M
 
 | File | Role |
 | --- | --- |
-| `BaileysBackend.ts` | Socket lifecycle, event wiring, send/react/edit/delete/group ops, pairing, raw-message LRU cache, provider-content conversion. Module-private class exposed via `createBaileysBackend()`. |
+| `BaileysBackend.ts` | Socket lifecycle, event wiring, send/react/edit/delete/group ops, pairing, profile enrichment (picture/about/business), raw-message LRU cache, provider-content conversion. Module-private class exposed via `createBaileysBackend()`. |
 | `BaileysMapper.ts` | Pure functions: `mapIncomingMessage`, `mapMessageUpdates`, `mapMessagesDelete`, `mapReaction`, `mapGroupParticipants`, `mapGroupUpdates`, `mapGroupMetadata`. |
 | `BaileysAuth.ts` | `AuthenticationState` backed by a `SessionStore`; coalesced write chain; `BufferJSON` serialization; app-state key revival. |
 | `BaileysDisconnect.ts` | Boom/status-code → `DisconnectReason` mapping (incl. network errnos). |
