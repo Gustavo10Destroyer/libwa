@@ -101,6 +101,7 @@ export type { CommandDefinition } from "./commands/CommandDefinition.js";
 
 export { MessageService, type SendTarget } from "./messaging/MessageService.js";
 export { GroupService, type GroupTarget } from "./groups/GroupService.js";
+export { UserService } from "./users/UserService.js";
 export type {
   MediaSource,
   MessagePayload,
@@ -145,6 +146,7 @@ export type {
   BackendEventListener,
   BackendGroupParticipantsEvent,
   BackendGroupUpdateEvent,
+  BackendIdPair,
   BackendMessageEvent,
   BackendMessageReference,
   BackendMessageUpdateEvent,

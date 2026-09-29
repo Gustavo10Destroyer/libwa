@@ -64,6 +64,8 @@ export class MockBackend implements WhatsAppBackend {
   connectError: unknown;
   sendError: unknown;
   metadataError: unknown;
+  /** Overrides the metadata returned by `getGroupMetadata` (default: fixture). */
+  metadataFixture: GroupMetadata | undefined;
   media: Uint8Array = new Uint8Array([1, 2, 3]);
   /** Group ids passed to `getGroupMetadata`, in call order. */
   readonly metadataCalls: ChatId[] = [];
@@ -112,7 +114,7 @@ export class MockBackend implements WhatsAppBackend {
     if (this.metadataError !== undefined) {
       throw this.metadataError;
     }
-    return groupMetadataFixture(chatId);
+    return this.metadataFixture ?? groupMetadataFixture(chatId);
   }
 
   on<Name extends BackendEventName>(
@@ -200,5 +202,34 @@ export class CapableMockBackend extends MockBackend {
 
   async logout(): Promise<void> {
     this.logoutCalled = true;
+  }
+
+  // --- identity resolution ------------------------------------------------------
+
+  /** Lids passed to `getPhoneNumberForLid`, in call order. */
+  readonly lidLookups: string[] = [];
+  /** Phone digits passed to `getLidForPhoneNumber`, in call order. */
+  readonly phoneLookups: string[] = [];
+  /** What `getPhoneNumberForLid` resolves (default: unresolvable). */
+  phoneForLidResult: string | null = null;
+  /** What `getLidForPhoneNumber` resolves (default: unresolvable). */
+  lidForPhoneResult: string | null = null;
+  /** When set, both identity lookups throw it. */
+  identityError: unknown;
+
+  async getPhoneNumberForLid(lid: string): Promise<string | null> {
+    if (this.identityError !== undefined) {
+      throw this.identityError;
+    }
+    this.lidLookups.push(lid);
+    return this.phoneForLidResult;
+  }
+
+  async getLidForPhoneNumber(phone: string): Promise<string | null> {
+    if (this.identityError !== undefined) {
+      throw this.identityError;
+    }
+    this.phoneLookups.push(phone);
+    return this.lidForPhoneResult;
   }
 }

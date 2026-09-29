@@ -26,6 +26,7 @@ import { InteractionFactory } from "./interactions/InteractionFactory.js";
 import type { Logger } from "./logging/Logger.js";
 import { MessageService } from "./messaging/MessageService.js";
 import { type Middleware, runMiddlewareChain } from "./middleware/compose.js";
+import { UserService } from "./users/UserService.js";
 
 /** Lifecycle state of a client. */
 export type ClientState = "idle" | "connecting" | "ready" | "destroyed";
@@ -47,6 +48,7 @@ interface LoginDeferred {
  * - `client.messages` — send/edit/delete/react
  * - `client.groups` — fetch metadata and manage groups
  * - `client.commands` — command registry
+ * - `client.users` — phone number ↔ linked id resolution
  *
  * ```ts
  * const client = new Client();
@@ -74,6 +76,8 @@ export class Client {
   readonly groups: GroupService;
   /** Command registry. */
   readonly commands: CommandRegistry;
+  /** Phone number ↔ linked id resolution. */
+  readonly users: UserService;
 
   #state: ClientState = "idle";
   #subscribed = false;
@@ -111,6 +115,7 @@ export class Client {
     this.messages = new MessageService(this.#backend, this.#entities);
     this.groups = new GroupService(this.#backend, this.#entities);
     this.commands = this.#registry;
+    this.users = new UserService(this.#backend, this.#entities);
   }
 
   // --- public state ----------------------------------------------------------

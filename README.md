@@ -20,6 +20,7 @@ await client.login();
 - **Interactions, not raw payloads** — messages, commands, reactions, edits/deletes, group changes all arrive as typed interactions with `isMessage()` / `isCommand()` / `isReaction()`-style guards.
 - **Provider-agnostic core** — the library core never imports Baileys; providers sit behind the `WhatsAppBackend` contract. Public `.d.ts` files are verified leak-free by `npm run check:exports`.
 - **First-class commands** — prefixes, aliases, args, `groupOnly` / `dmOnly`, `client.commands.register()`.
+- **LID-aware identity** — WhatsApp's linked ids (`…@lid`) are paired with phone numbers as they arrive; `client.users.resolvePhone(id)` / `client.users.resolveLid(id)` fill the remaining gaps.
 - **Middleware pipeline** — rate limiting, chat filters, permissions: `client.use((interaction, next) => …)`.
 - **Sessions** — opaque, backend-owned session blobs persisted through `SessionStore` (filesystem by default, memory for tests, bring your own).
 - **Typed events & errors** — fully inferred listener arguments, a stable `WhatsAppError` hierarchy with machine-readable codes.
@@ -182,7 +183,8 @@ const backend: WhatsAppBackend = {
   async getGroupMetadata(chatId) { /* … */ },
   on(event, listener) { /* … */ },
   // optional: react, editMessage, deleteMessage, updateGroupParticipants,
-  //           updateGroupName, updateGroupDescription, requestPairingCode, logout
+  //           updateGroupName, updateGroupDescription, requestPairingCode, logout,
+  //           getPhoneNumberForLid, getLidForPhoneNumber
 };
 
 new Client({ backend });
@@ -194,7 +196,7 @@ See `docs/architecture.md` for the contract and `examples/` for runnable pattern
 
 ```sh
 npm run typecheck    # tsc --noEmit (src + tests + examples)
-npm test             # vitest (189 tests)
+npm test             # vitest (209 tests)
 npm run lint         # biome check
 npm run build        # tsc -p tsconfig.build.json → dist/
 npm run check:exports  # public API surface must not leak the provider
