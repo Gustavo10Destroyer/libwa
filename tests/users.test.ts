@@ -322,6 +322,110 @@ describe("client.users.fetch", () => {
   });
 });
 
+describe("client.users picture/about/accountType", () => {
+  it("fetches profile picture urls for both id schemes with default and explicit types", async () => {
+    const backend = new CapableMockBackend();
+    backend.pictureUrlResult = "https://pps.example/pic.jpg";
+    const client = await readyClient(backend);
+
+    expect(await client.users.pictureUrl(PN)).toBe("https://pps.example/pic.jpg");
+    expect(await client.users.pictureUrl(PN, "preview")).toBe("https://pps.example/pic.jpg");
+    expect(await client.users.pictureUrl(LID)).toBe("https://pps.example/pic.jpg");
+    expect(backend.pictureCalls).toEqual([PN, PN, LID]);
+    expect(backend.pictureTypeCalls).toEqual(["image", "preview", "image"]);
+  });
+
+  it("resolves undefined for accounts without a picture", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    expect(await client.users.pictureUrl(PN)).toBeUndefined();
+    expect(await client.users.about(PN)).toBeUndefined();
+  });
+
+  it("normalizes input formats like fetch", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    await client.users.pictureUrl("5511999999999");
+    await client.users.pictureUrl("+5511999999999");
+    await client.users.pictureUrl("5511999999999@c.us");
+    expect(backend.pictureCalls).toEqual([PN, PN, PN]);
+  });
+
+  it("fetches about texts", async () => {
+    const backend = new CapableMockBackend();
+    backend.aboutResult = "living la vida loca";
+    const client = await readyClient(backend);
+
+    expect(await client.users.about(PN)).toBe("living la vida loca");
+    expect(await client.users.about(LID)).toBe("living la vida loca");
+    expect(backend.aboutCalls).toEqual([PN, LID]);
+  });
+
+  it("classifies accounts by probing the business profile", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    expect(await client.users.accountType(PN)).toBe("standard");
+    expect(backend.businessCalls).toEqual([PN]);
+
+    backend.businessProfileResult = {
+      description: "we sell things",
+      category: "Shopping & Retail",
+      email: "hi@example.com",
+      website: ["https://example.com"],
+      address: "São Paulo",
+    };
+    expect(await client.users.accountType(LID)).toBe("business");
+    expect(backend.businessCalls).toEqual([PN, LID]);
+  });
+
+  it("rejects malformed ids with ERR_INVALID_USER_ID", async () => {
+    const backend = new CapableMockBackend();
+    const client = await readyClient(backend);
+
+    for (const bad of ["", "   ", GROUP, "abc@lid"]) {
+      await expect(client.users.pictureUrl(bad)).rejects.toMatchObject({
+        code: "ERR_INVALID_USER_ID",
+      });
+      await expect(client.users.about(bad)).rejects.toMatchObject({
+        code: "ERR_INVALID_USER_ID",
+      });
+      await expect(client.users.accountType(bad)).rejects.toMatchObject({
+        code: "ERR_INVALID_USER_ID",
+      });
+    }
+    expect(backend.pictureCalls).toEqual([]);
+    expect(backend.aboutCalls).toEqual([]);
+    expect(backend.businessCalls).toEqual([]);
+  });
+
+  it("throws UnsupportedOperationError when capabilities are missing", async () => {
+    const plain = new MockBackend();
+    const plainClient = await readyClient(plain);
+
+    await expect(plainClient.users.pictureUrl(PN)).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+    await expect(plainClient.users.about(PN)).rejects.toBeInstanceOf(UnsupportedOperationError);
+    await expect(plainClient.users.accountType(PN)).rejects.toBeInstanceOf(
+      UnsupportedOperationError,
+    );
+  });
+
+  it("propagates provider failures as backend errors", async () => {
+    const backend = new CapableMockBackend();
+    backend.profileError = new Error("boom");
+    const client = await readyClient(backend);
+
+    await expect(client.users.pictureUrl(PN)).rejects.toThrow(BackendError);
+    await expect(client.users.about(PN)).rejects.toThrow(BackendError);
+    await expect(client.users.accountType(PN)).rejects.toThrow(BackendError);
+    expect(backend.pictureCalls).toEqual([]);
+  });
+});
+
 describe("push-name memory", () => {
   it("carries names seen on messages to later id-only users", async () => {
     const backend = new CapableMockBackend();

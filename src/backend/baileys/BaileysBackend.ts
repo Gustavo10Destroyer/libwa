@@ -22,6 +22,7 @@ import {
 import { TypedEventEmitter } from "../../events/TypedEventEmitter.js";
 import { type Logger, nullLogger } from "../../logging/Logger.js";
 import type {
+  BackendBusinessProfile,
   BackendConnectOptions,
   BackendDeleteMessageRequest,
   BackendEditMessageRequest,
@@ -33,6 +34,7 @@ import type {
   BackendSendMessage,
   BackendSentMessage,
   BackendUserLookup,
+  ProfilePictureType,
   WhatsAppBackend,
 } from "../Backend.js";
 import type {
@@ -85,6 +87,7 @@ export interface BaileysBackendOptions {
 
 const DEFAULT_BROWSER: readonly [string, string, string] = ["libwa", "1.0.0", "1"];
 const RAW_CACHE_LIMIT = 500;
+const PROFILE_PICTURE_TIMEOUT_MS = 10_000;
 
 /** Creates a backend backed by the Baileys provider. */
 export function createBaileysBackend(options: BaileysBackendOptions = {}): WhatsAppBackend {
@@ -375,6 +378,69 @@ class BaileysBackend implements WhatsAppBackend {
       return { exists: results.some((entry) => entry.exists) };
     } catch (error) {
       rethrowAsBackendError(`Fetch user ${phone}`, error);
+    }
+  }
+
+  // --- profile enrichment --------------------------------------------------------
+
+  async getProfilePictureUrl(id: UserId, type: ProfilePictureType): Promise<string | undefined> {
+    const socket = this.#requireSocket();
+    try {
+      // Works for both id schemes (LID included); `undefined` = no picture.
+      return await socket.profilePictureUrl(id, type, PROFILE_PICTURE_TIMEOUT_MS);
+    } catch (error) {
+      const status = providerStatusCode(error);
+      if (status === 401 || status === 403 || status === 404) {
+        // Private or absent picture — same answer as "no picture".
+        return undefined;
+      }
+      rethrowAsBackendError(`Fetch profile picture of ${id}`, error);
+    }
+  }
+
+  async getAbout(id: UserId): Promise<string | undefined> {
+    const socket = this.#requireSocket();
+    try {
+      // USync status protocol: `{ status: string | null, setAt }` per row.
+      // Empty string = hidden by privacy settings; null = not set.
+      const rows = await socket.fetchStatus(id);
+      const payload = rows?.[0]?.status as { status?: unknown } | undefined;
+      const status = payload?.status;
+      return typeof status === "string" && status !== "" ? status : undefined;
+    } catch (error) {
+      const status = providerStatusCode(error);
+      if (status === 401 || status === 403 || status === 404) {
+        return undefined;
+      }
+      rethrowAsBackendError(`Fetch about of ${id}`, error);
+    }
+  }
+
+  async getBusinessProfile(id: UserId): Promise<BackendBusinessProfile | undefined> {
+    const socket = this.#requireSocket();
+    try {
+      let jid = id;
+      if (id.endsWith("@lid")) {
+        const phone = await socket.signalRepository.lidMapping.getPNForLID(id);
+        if (phone === null) {
+          throw new Error(`linked id ${id} has no known phone number`);
+        }
+        jid = jidNormalizedUser(phone);
+      }
+      const profile = await socket.getBusinessProfile(jid);
+      if (!profile) {
+        // Probe completed with no profile — a standard account.
+        return undefined;
+      }
+      return {
+        description: profile.description ?? "",
+        category: profile.category,
+        email: profile.email,
+        website: [...(profile.website ?? [])],
+        address: profile.address,
+      };
+    } catch (error) {
+      rethrowAsBackendError(`Fetch business profile of ${id}`, error);
     }
   }
 

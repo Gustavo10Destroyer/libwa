@@ -107,6 +107,18 @@ export interface BackendUserLookup {
   readonly verifiedName?: string | undefined;
 }
 
+/** Resolution variant for profile pictures. */
+export type ProfilePictureType = "preview" | "image";
+
+/** Business profile details reported by the `getBusinessProfile` capability. */
+export interface BackendBusinessProfile {
+  readonly description: string;
+  readonly category: string | undefined;
+  readonly email: string | undefined;
+  readonly website: readonly string[];
+  readonly address: string | undefined;
+}
+
 /** Everything a backend needs from the client in order to connect. */
 export interface BackendConnectOptions {
   /** Session slot to use (see `ClientOptions.sessionId`). */
@@ -189,4 +201,23 @@ export interface WhatsAppBackend {
    * {@link UserService.fetch} performs that composition for callers.
    */
   fetchUser?(phone: string): Promise<BackendUserLookup>;
+
+  // --- profile enrichment -------------------------------------------------------
+
+  /**
+   * Fetches the profile-picture URL of an account (either id scheme),
+   * or `undefined` when the account has no picture or keeps it private.
+   */
+  getProfilePictureUrl?(id: UserId, type: ProfilePictureType): Promise<string | undefined>;
+  /**
+   * Fetches the about/bio text ("status") of an account (either id scheme),
+   * or `undefined` when it is unset, hidden, or unknown.
+   */
+  getAbout?(id: UserId): Promise<string | undefined>;
+  /**
+   * Fetches the business profile of an account (either id scheme).
+   * `undefined` means the probe completed and the account has no business
+   * profile (a standard account); provider failures throw.
+   */
+  getBusinessProfile?(id: UserId): Promise<BackendBusinessProfile | undefined>;
 }

@@ -102,7 +102,7 @@ export type { CommandDefinition } from "./commands/CommandDefinition.js";
 
 export { MessageService, type SendTarget } from "./messaging/MessageService.js";
 export { GroupService, type GroupTarget } from "./groups/GroupService.js";
-export { UserService } from "./users/UserService.js";
+export { UserService, type AccountType } from "./users/UserService.js";
 export type {
   MediaSource,
   MessagePayload,
@@ -127,6 +127,7 @@ export { MemorySessionStore } from "./auth/MemorySessionStore.js";
 // --- backend contract ---------------------------------------------------------------
 
 export type {
+  BackendBusinessProfile,
   BackendConnectOptions,
   BackendDeleteMessageRequest,
   BackendEditMessageRequest,
@@ -139,6 +140,7 @@ export type {
   BackendSentMessage,
   BackendUserLookup,
   OutboundContent,
+  ProfilePictureType,
   WhatsAppBackend,
 } from "./backend/Backend.js";
 export type {

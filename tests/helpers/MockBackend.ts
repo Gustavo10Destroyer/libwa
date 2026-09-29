@@ -1,4 +1,5 @@
 import type {
+  BackendBusinessProfile,
   BackendConnectOptions,
   BackendDeleteMessageRequest,
   BackendEditMessageRequest,
@@ -10,6 +11,7 @@ import type {
   BackendSendMessage,
   BackendSentMessage,
   BackendUserLookup,
+  ProfilePictureType,
   WhatsAppBackend,
 } from "../../src/backend/Backend.js";
 import type {
@@ -249,5 +251,49 @@ export class CapableMockBackend extends MockBackend {
     }
     this.userFetchCalls.push(phone);
     return this.userLookup;
+  }
+
+  // --- profile enrichment --------------------------------------------------------
+
+  /** Ids passed to `getProfilePictureUrl`, in call order. */
+  readonly pictureCalls: string[] = [];
+  /** Picture types passed to `getProfilePictureUrl`, in call order. */
+  readonly pictureTypeCalls: ProfilePictureType[] = [];
+  /** What `getProfilePictureUrl` resolves (default: no picture). */
+  pictureUrlResult: string | undefined = undefined;
+  /** Ids passed to `getAbout`, in call order. */
+  readonly aboutCalls: string[] = [];
+  /** What `getAbout` resolves (default: no about text). */
+  aboutResult: string | undefined = undefined;
+  /** Ids passed to `getBusinessProfile`, in call order. */
+  readonly businessCalls: string[] = [];
+  /** What `getBusinessProfile` resolves (default: standard account). */
+  businessProfileResult: BackendBusinessProfile | undefined = undefined;
+  /** When set, all three profile enrichments throw it. */
+  profileError: unknown;
+
+  async getProfilePictureUrl(id: string, type: ProfilePictureType): Promise<string | undefined> {
+    if (this.profileError !== undefined) {
+      throw this.profileError;
+    }
+    this.pictureCalls.push(id);
+    this.pictureTypeCalls.push(type);
+    return this.pictureUrlResult;
+  }
+
+  async getAbout(id: string): Promise<string | undefined> {
+    if (this.profileError !== undefined) {
+      throw this.profileError;
+    }
+    this.aboutCalls.push(id);
+    return this.aboutResult;
+  }
+
+  async getBusinessProfile(id: string): Promise<BackendBusinessProfile | undefined> {
+    if (this.profileError !== undefined) {
+      throw this.profileError;
+    }
+    this.businessCalls.push(id);
+    return this.businessProfileResult;
   }
 }

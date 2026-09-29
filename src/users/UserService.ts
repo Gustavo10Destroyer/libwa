@@ -1,4 +1,9 @@
-import type { BackendUserLookup, WhatsAppBackend } from "../backend/Backend.js";
+import type {
+  BackendBusinessProfile,
+  BackendUserLookup,
+  ProfilePictureType,
+  WhatsAppBackend,
+} from "../backend/Backend.js";
 import type { UserId } from "../core/ids.js";
 import type { EntityFactory } from "../entities/EntityFactory.js";
 import { type User, phoneFromId } from "../entities/User.js";
@@ -7,6 +12,9 @@ import {
   ValidationError,
   rethrowAsBackendError,
 } from "../errors/index.js";
+
+/** Account classification reported by {@link UserService.accountType}. */
+export type AccountType = "standard" | "business";
 
 /** A validated `fetch` input: canonical id plus phone digits when known. */
 type FetchTarget =
@@ -57,7 +65,10 @@ function normalizeFetchTarget(raw: string): FetchTarget {
  * backend capability (`getPhoneNumberForLid` / `getLidForPhoneNumber`) is
  * consulted only when no pair is known yet. Backends without the capability
  * resolve `undefined`. {@link UserService.fetch} additionally checks account
- * existence with the provider.
+ * existence with the provider, and {@link UserService.pictureUrl},
+ * {@link UserService.about} and {@link UserService.accountType} enrich a
+ * known id with profile data the provider offers (each behind its own
+ * optional capability — `User` itself stays a cheap value object).
  *
  * ```ts
  * client.on("interactionCreate", async (i) => {
@@ -207,5 +218,90 @@ export class UserService {
     }
     if (!lookup.exists) return undefined;
     return this.#entities.user(target.id, lookup.name ?? lookup.verifiedName);
+  }
+
+  /**
+   * Profile-picture URL of an account (either id scheme), or `undefined`
+   * when the account has no picture or keeps it private.
+   *
+   * Accepts the same input formats as {@link UserService.fetch} (phone JID,
+   * legacy `@c.us`, device suffixes, bare digits, `…@lid`); anything else
+   * throws `ValidationError` (`ERR_INVALID_USER_ID`). `type` selects the
+   * resolution: `"image"` (default, full size) or `"preview"` (small).
+   *
+   * The URL comes straight from the provider — fetch it yourself, cache it
+   * yourself; the library does not download or store pictures.
+   *
+   * **Errors:** `UnsupportedOperationError` when the backend lacks the
+   * `getProfilePictureUrl` capability; `BackendError` on provider failures
+   * (privacy-hidden pictures resolve `undefined` instead).
+   */
+  async pictureUrl(id: string, type: ProfilePictureType = "image"): Promise<string | undefined> {
+    const target = normalizeFetchTarget(id);
+    if (this.#backend.getProfilePictureUrl === undefined) {
+      throw new UnsupportedOperationError(
+        `Backend "${this.#backend.id}" does not support fetching profile pictures.`,
+      );
+    }
+    try {
+      return await this.#backend.getProfilePictureUrl(target.id, type);
+    } catch (error) {
+      rethrowAsBackendError(`Fetch profile picture of ${target.id}`, error);
+    }
+  }
+
+  /**
+   * About/bio text ("status") of an account (either id scheme), or
+   * `undefined` when it is unset, hidden by privacy settings, or unknown.
+   *
+   * Accepts the same input formats as {@link UserService.fetch}; malformed
+   * input throws `ValidationError` (`ERR_INVALID_USER_ID`).
+   *
+   * **Errors:** `UnsupportedOperationError` when the backend lacks the
+   * `getAbout` capability; `BackendError` on provider failures (hidden or
+   * empty about texts resolve `undefined` instead).
+   */
+  async about(id: string): Promise<string | undefined> {
+    const target = normalizeFetchTarget(id);
+    if (this.#backend.getAbout === undefined) {
+      throw new UnsupportedOperationError(
+        `Backend "${this.#backend.id}" does not support fetching about texts.`,
+      );
+    }
+    try {
+      return await this.#backend.getAbout(target.id);
+    } catch (error) {
+      rethrowAsBackendError(`Fetch about of ${target.id}`, error);
+    }
+  }
+
+  /**
+   * Account classification: `"business"` when the provider reports a
+   * business profile for the account, `"standard"` when the probe completes
+   * without one.
+   *
+   * Accepts the same input formats as {@link UserService.fetch}; malformed
+   * input throws `ValidationError` (`ERR_INVALID_USER_ID`). Providers have
+   * no single "business flag", so this is answered by probing the business
+   * profile — one extra network round-trip per call.
+   *
+   * **Errors:** `UnsupportedOperationError` when the backend lacks the
+   * `getBusinessProfile` capability; `BackendError` on provider failures
+   * (including linked ids the provider cannot map to a phone number).
+   */
+  async accountType(id: string): Promise<AccountType> {
+    const target = normalizeFetchTarget(id);
+    if (this.#backend.getBusinessProfile === undefined) {
+      throw new UnsupportedOperationError(
+        `Backend "${this.#backend.id}" does not support fetching business profiles.`,
+      );
+    }
+    let profile: BackendBusinessProfile | undefined;
+    try {
+      profile = await this.#backend.getBusinessProfile(target.id);
+    } catch (error) {
+      rethrowAsBackendError(`Fetch business profile of ${target.id}`, error);
+    }
+    return profile === undefined ? "standard" : "business";
   }
 }
