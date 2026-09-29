@@ -86,10 +86,12 @@ Every backend event is normalized into an `Interaction`. Narrow with guards:
 | `isCommand()` | `CommandInteraction` | `.name`, `.args`, `.rawArgs`, `.command` (also a message) |
 | `isReaction()` | `ReactionInteraction` | `.emoji` (`null` = removed), `.messageId`, `.react()` |
 | `isMessageUpdate()` | `MessageUpdateInteraction` | `.action` (`edit` \| `delete`), `.content` |
-| `isGroupParticipantUpdate()` | `GroupParticipantInteraction` | `.action`, `.users`, `.group` |
+| `isGroupParticipantUpdate()` | `GroupParticipantInteraction` | `.action`, `.user` / `.users`, `.group` |
 | `isGroupUpdate()` | `GroupUpdateInteraction` | `.changes`, `.group` |
 | `isButton()` | `ButtonInteraction` | `.buttonId`, `.title`, `.displayText`, `.variant` |
 | `isList()` | `ListInteraction` | `.rowId`, `.title`, `.description` |
+
+Every interaction carries `.chat`; when `isFromGroup()` is true it narrows so `.group` is typed `Group` (undefined for direct chats). Group interactions are dispatched with freshly fetched group metadata, so `.group.members` is current.
 
 Content is a discriminated union (`content.kind`): `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `buttonReply`, `listReply`, `unknown` — plus `isText()` / `isImage()` / … guards that narrow `content` at compile time.
 

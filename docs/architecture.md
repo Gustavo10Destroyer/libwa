@@ -28,7 +28,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 
 - Resolves options (`ClientOptions` → defaults) and constructs services.
 - Subscribes to the six normalized backend events exactly once per instance.
-- Converts backend events into interactions (`InteractionFactory`), runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
+- Converts backend events into interactions (`InteractionFactory`) — refreshing the group's metadata first for group participant/update events, so interactions carry current members — runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
 - Owns **reconnection policy** (backoff, attempt counting, fatal-reason classification). Backends only report *why* a connection closed.
 - Owns **login bookkeeping**: `login()` returns a deferred promise resolved on first `ready`, rejected on fatal/auth failure or when retries are exhausted.
 
