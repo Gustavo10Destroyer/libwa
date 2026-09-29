@@ -28,9 +28,10 @@ export interface CommandParsingOptions {
  * Turns normalized backend events into public interactions.
  *
  * This is the single place where backend payloads become user-facing objects:
- * message content is inspected, command prefixes are parsed, and the right
- * concrete interaction class is instantiated. The client only ever dispatches
- * the returned {@link Interaction}.
+ * known LID ↔ phone-number id pairs are recorded first, message content is
+ * inspected, command prefixes are parsed, and the right concrete interaction
+ * class is instantiated. The client only ever dispatches the returned
+ * {@link Interaction}.
  */
 export class InteractionFactory {
   readonly #client: Client;
@@ -52,6 +53,7 @@ export class InteractionFactory {
 
   /** Creates a message/command/button/list interaction from a message event. */
   fromMessage(event: BackendMessageEvent): Interaction {
+    this.#entities.recordIdPairs(event.idPairs);
     const message = this.#entities.message(event);
     const content = message.content;
 
@@ -106,6 +108,7 @@ export class InteractionFactory {
 
   /** Creates a reaction interaction. */
   fromReaction(event: BackendReactionEvent): ReactionInteraction {
+    this.#entities.recordIdPairs(event.idPairs);
     const author = this.#entities.user(event.reactorId);
     return new ReactionInteraction(this.#client, {
       id: event.id,
@@ -120,6 +123,7 @@ export class InteractionFactory {
 
   /** Creates a message edit/delete interaction. */
   fromMessageUpdate(event: BackendMessageUpdateEvent): MessageUpdateInteraction {
+    this.#entities.recordIdPairs(event.idPairs);
     const chat = this.#entities.chat({ id: event.chatId, kind: event.chatKind });
     const author = event.authorId === undefined ? undefined : this.#entities.user(event.authorId);
     return new MessageUpdateInteraction(this.#client, {
@@ -135,6 +139,7 @@ export class InteractionFactory {
 
   /** Creates a group participant change interaction. */
   fromGroupParticipants(event: BackendGroupParticipantsEvent): GroupParticipantInteraction {
+    this.#entities.recordIdPairs(event.idPairs);
     const actor = event.actorId === undefined ? undefined : this.#entities.user(event.actorId);
     return new GroupParticipantInteraction(this.#client, {
       id: event.id,

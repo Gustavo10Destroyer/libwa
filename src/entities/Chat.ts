@@ -2,6 +2,7 @@ import type { Client } from "../Client.js";
 import type { ChatId, UserId } from "../core/ids.js";
 import { ValidationError } from "../errors/index.js";
 import type { ReplyContent } from "../messaging/types.js";
+import type { EntityFactory } from "./EntityFactory.js";
 import type { Message } from "./Message.js";
 import { User } from "./User.js";
 
@@ -86,7 +87,13 @@ export class Chat {
 
 /** A participant of a group together with their role. */
 export interface GroupParticipant {
+  /** Member id — phone-number JID (`…@s.whatsapp.net`) or linked id (`…@lid`). */
   readonly id: UserId;
+  /**
+   * The same member's id in the other addressing scheme, when the provider
+   * reported it (LID ↔ phone number, see https://baileys.wiki/concepts/jids).
+   */
+  readonly altId?: UserId | undefined;
   readonly role: GroupRole;
   readonly name: string | undefined;
 }
@@ -122,6 +129,8 @@ export interface GroupInit {
   readonly id: ChatId;
   readonly name?: string | undefined;
   readonly metadata?: GroupMetadata | undefined;
+  /** Factory used to build members/owner users (resolves known id pairs). */
+  readonly entities?: EntityFactory | undefined;
 }
 
 /**
@@ -134,6 +143,7 @@ export interface GroupInit {
  */
 export class Group extends Chat {
   #metadata: GroupMetadata | undefined;
+  readonly #entities: EntityFactory | undefined;
 
   constructor(init: GroupInit) {
     super({
@@ -143,6 +153,7 @@ export class Group extends Chat {
       name: init.metadata?.name ?? init.name,
     });
     this.#metadata = init.metadata;
+    this.#entities = init.entities;
   }
 
   /** Full metadata when known, otherwise `undefined` until fetched. */
@@ -226,6 +237,9 @@ export class Group extends Chat {
   }
 
   #makeUser(id: UserId, name?: string | undefined): User {
+    if (this.#entities !== undefined) {
+      return this.#entities.user(id, name);
+    }
     return new User({ id, name, isMe: this.client.me?.id === id });
   }
 }

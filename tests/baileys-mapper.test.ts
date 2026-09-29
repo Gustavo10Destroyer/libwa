@@ -910,6 +910,128 @@ describe("mapGroupMetadata", () => {
   });
 });
 
+describe("id pair capture", () => {
+  it("captures participant and chat pairs from incoming messages", () => {
+    const { context, cached } = harness();
+    const message: WAMessage = {
+      key: {
+        remoteJid: "987654321012345@lid",
+        remoteJidAlt: "5511999999999@s.whatsapp.net",
+        id: "MSG1",
+        fromMe: false,
+        participant: "111222333444555@lid",
+        participantAlt: "5511888888888@s.whatsapp.net",
+      },
+      message: { conversation: "hi" },
+      messageTimestamp: TIMESTAMP,
+    };
+    const event = mapIncomingMessage(message, context);
+    expect(event?.idPairs).toEqual([
+      { id: "111222333444555@lid", altId: "5511888888888@s.whatsapp.net" },
+      { id: "987654321012345@lid", altId: "5511999999999@s.whatsapp.net" },
+    ]);
+    expect(cached.has("987654321012345@lid:MSG1")).toBe(true);
+  });
+
+  it("omits idPairs when the key carries a single scheme", () => {
+    const { context } = harness();
+    const message: WAMessage = {
+      key: { remoteJid: "111@s.whatsapp.net", id: "MSG2", fromMe: false },
+      message: { conversation: "hi" },
+      messageTimestamp: TIMESTAMP,
+    };
+    expect(mapIncomingMessage(message, context)?.idPairs).toBeUndefined();
+  });
+
+  it("captures pairs from reaction keys", () => {
+    const { context } = harness();
+    const event = mapReaction(
+      {
+        key: { remoteJid: "123456789@g.us", id: "MSG3", fromMe: false },
+        reaction: {
+          key: {
+            remoteJid: "123456789@g.us",
+            id: "MSG3",
+            fromMe: false,
+            participant: "5511999999999@s.whatsapp.net",
+            participantAlt: "987654321012345@lid",
+          } as WAMessageKey,
+          text: "👍",
+          senderTimestampMs: 1_700_000_000_000,
+        },
+      },
+      context,
+    );
+    expect(event?.idPairs).toContainEqual({
+      id: "5511999999999@s.whatsapp.net",
+      altId: "987654321012345@lid",
+    });
+  });
+
+  it("captures pairs from message update keys", () => {
+    const { context } = harness();
+    const events = mapMessageUpdates(
+      [
+        {
+          key: {
+            remoteJid: "123456789@g.us",
+            id: "MSG4",
+            fromMe: false,
+            participant: "5511999999999@s.whatsapp.net",
+            participantAlt: "987654321012345@lid",
+          },
+          update: { messageStubType: WAMessageStubType.REVOKE },
+        },
+      ],
+      context,
+    );
+    expect(events[0]?.idPairs).toContainEqual({
+      id: "5511999999999@s.whatsapp.net",
+      altId: "987654321012345@lid",
+    });
+  });
+
+  it("captures actor and participant pairs from membership events", () => {
+    const { context } = harness();
+    const event = mapGroupParticipants(
+      {
+        id: "123456789@g.us",
+        author: "5511999999999@lid",
+        authorPn: "5511999999999@s.whatsapp.net",
+        participants: [
+          { id: "987654321012345@lid", phoneNumber: "5511888888888@s.whatsapp.net" },
+          { id: "5511777777777@s.whatsapp.net", lid: "111222333444555@lid" },
+          { id: "5511666666666@s.whatsapp.net" },
+        ] as ProviderGroupParticipant[],
+        action: "add",
+      },
+      context,
+    );
+    expect(event?.idPairs).toEqual([
+      { id: "987654321012345@lid", altId: "5511888888888@s.whatsapp.net" },
+      { id: "5511777777777@s.whatsapp.net", altId: "111222333444555@lid" },
+      { id: "5511999999999@lid", altId: "5511999999999@s.whatsapp.net" },
+    ]);
+  });
+
+  it("captures participant alt ids from group metadata", () => {
+    const mapped = mapGroupMetadata({
+      id: "123456789@g.us",
+      subject: "Paired",
+      participants: [
+        { id: "987654321012345@lid", phoneNumber: "5511999999999@s.whatsapp.net" },
+        { id: "5511888888888@s.whatsapp.net", lid: "111222333444555@lid" },
+        { id: "5511777777777@s.whatsapp.net" },
+      ] as ProviderGroupParticipant[],
+    } as unknown as ProviderGroupMetadata);
+    expect(mapped.participants.map((participant) => participant.altId)).toEqual([
+      "5511999999999@s.whatsapp.net",
+      "111222333444555@lid",
+      undefined,
+    ]);
+  });
+});
+
 describe("WAMessageKey typing sanity", () => {
   it("accepts partial provider keys in fixtures", () => {
     const key: WAMessageKey = { remoteJid: "111@s.whatsapp.net", id: "X" };

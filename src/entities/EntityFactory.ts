@@ -1,6 +1,7 @@
 import type { Client } from "../Client.js";
 import type { BackendSentMessage } from "../backend/Backend.js";
 import type {
+  BackendIdPair,
   BackendMessageEvent,
   BackendMessageReference,
   BackendSelf,
@@ -10,7 +11,7 @@ import type { ChatId, UserId } from "../core/ids.js";
 import { Chat, Group } from "./Chat.js";
 import type { ChatKind, GroupMetadata, GroupUpdateChanges } from "./Chat.js";
 import { Message, type MessageReference } from "./Message.js";
-import { User } from "./User.js";
+import { User, phoneFromId } from "./User.js";
 
 export interface ChatRef {
   readonly id: ChatId;
@@ -30,6 +31,8 @@ export class EntityFactory {
   readonly #client: Client;
   readonly #chats = new Map<ChatId, Chat>();
   readonly #groupMetadata = new Map<ChatId, GroupMetadata>();
+  readonly #lidToPn = new Map<UserId, UserId>();
+  readonly #pnToLid = new Map<UserId, UserId>();
   #me: User | null = null;
 
   constructor(client: Client) {
@@ -43,13 +46,59 @@ export class EntityFactory {
 
   /** Records the logged-in account (called on connection open). */
   setSelf(self: BackendSelf): User {
-    this.#me = new User({ id: self.id, name: self.name, isMe: true });
+    this.#me = new User({
+      id: self.id,
+      name: self.name,
+      isMe: true,
+      phone: this.phoneFor(self.id),
+    });
     return this.#me;
+  }
+
+  /**
+   * Records LID ↔ phone-number id pairs reported by the provider so linked
+   * ids can later be resolved to phone numbers (and vice versa). Pairs whose
+   * ends use the same addressing scheme, or where the phone-number end does
+   * not parse as one, are ignored.
+   */
+  recordIdPairs(pairs: readonly BackendIdPair[] | undefined): void {
+    if (pairs === undefined) return;
+    for (const pair of pairs) {
+      const { id, altId } = pair;
+      const idIsLid = id.endsWith("@lid");
+      if (idIsLid === altId.endsWith("@lid")) continue;
+      const pn = idIsLid ? altId : id;
+      const lid = idIsLid ? id : altId;
+      if (phoneFromId(pn) === undefined) continue;
+      this.#lidToPn.set(lid, pn);
+      this.#pnToLid.set(pn, lid);
+    }
+  }
+
+  /**
+   * Phone digits for an id — from the id itself when it is a phone-number
+   * JID, otherwise from a previously recorded pair. `undefined` when unknown.
+   */
+  phoneFor(id: UserId): string | undefined {
+    const direct = phoneFromId(id);
+    if (direct !== undefined) return direct;
+    const pnId = this.#lidToPn.get(id);
+    return pnId === undefined ? undefined : phoneFromId(pnId);
+  }
+
+  /** The same account's id in the other addressing scheme, when a pair is known. */
+  altIdFor(id: UserId): UserId | undefined {
+    return this.#lidToPn.get(id) ?? this.#pnToLid.get(id);
   }
 
   /** Creates a user value (never cached; `isMe` is resolved automatically). */
   user(id: UserId, name?: string | undefined): User {
-    return new User({ id, name, isMe: id === this.#me?.id });
+    return new User({
+      id,
+      name,
+      isMe: id === this.#me?.id,
+      phone: this.phoneFor(id),
+    });
   }
 
   /** Resolves the logged-in user, or a placeholder before the first connection. */
@@ -102,6 +151,7 @@ export class EntityFactory {
       id,
       name,
       metadata: this.#groupMetadata.get(id),
+      entities: this,
     });
     this.#chats.set(id, group);
     return group;
@@ -109,6 +159,11 @@ export class EntityFactory {
 
   /** Stores fresh group metadata and returns the synchronized group instance. */
   applyGroupMetadata(metadata: GroupMetadata): Group {
+    for (const participant of metadata.participants) {
+      if (participant.altId !== undefined) {
+        this.recordIdPairs([{ id: participant.id, altId: participant.altId }]);
+      }
+    }
     this.#groupMetadata.set(metadata.id, metadata);
     const group = this.group(metadata.id, metadata.name);
     group.applyMetadata(metadata);

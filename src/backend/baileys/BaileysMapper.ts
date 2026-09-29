@@ -21,6 +21,7 @@ import type {
 import type {
   BackendGroupParticipantsEvent,
   BackendGroupUpdateEvent,
+  BackendIdPair,
   BackendMessageEvent,
   BackendMessageReference,
   BackendMessageUpdateEvent,
@@ -55,6 +56,8 @@ export type ProviderMessagesDelete =
 export interface ProviderGroupParticipantsEvent {
   readonly id: string;
   readonly author: string | null | undefined;
+  /** Author's phone-number JID when `author` is a linked id (and vice versa). */
+  readonly authorPn?: string | null | undefined;
   readonly participants: readonly ProviderGroupParticipant[];
   readonly action: ParticipantAction;
 }
@@ -439,6 +442,41 @@ function resolveAuthorId(key: WAMessageKey, selfId: string | undefined, chatId: 
   return chatId;
 }
 
+/**
+ * Collects the LID ↔ phone-number id pairs the provider attached to a message
+ * key: the participant pair (`participant` + `participantAlt`) and the chat
+ * pair (`remoteJid` + `remoteJidAlt`). Both ends are normalized; the core
+ * validates the pairing before recording it.
+ */
+function keyIdPairs(key: WAMessageKey): BackendIdPair[] {
+  const pairs: BackendIdPair[] = [];
+  const participant = present(key.participant) ? normalizeJid(key.participant) : undefined;
+  const participantAlt = present(key.participantAlt) ? normalizeJid(key.participantAlt) : undefined;
+  if (participant !== undefined && participantAlt !== undefined) {
+    pairs.push({ id: participant, altId: participantAlt });
+  }
+  const remoteJid = present(key.remoteJid) ? normalizeJid(key.remoteJid) : undefined;
+  const remoteJidAlt = present(key.remoteJidAlt) ? normalizeJid(key.remoteJidAlt) : undefined;
+  if (remoteJid !== undefined && remoteJidAlt !== undefined) {
+    pairs.push({ id: remoteJid, altId: remoteJidAlt });
+  }
+  return pairs;
+}
+
+/** `idPairs` field of a domain event, omitted when the provider reported none. */
+function idPairsField(pairs: BackendIdPair[]): { idPairs: BackendIdPair[] } | undefined {
+  return pairs.length > 0 ? { idPairs: pairs } : undefined;
+}
+
+/**
+ * The participant's id in the other addressing scheme: Baileys exposes
+ * `phoneNumber` when `id` is a linked id, and `lid` when `id` is a phone JID.
+ */
+function participantAltId(participant: ProviderGroupParticipant): string | undefined {
+  const alt = participant.phoneNumber ?? participant.lid;
+  return present(alt) ? normalizeJid(alt) : undefined;
+}
+
 function buildReference(
   context: proto.IContextInfo | null | undefined,
   mapperContext: MapperContext,
@@ -518,6 +556,7 @@ export function mapIncomingMessage(
     isForwarded: isForwardedContent(contextInfo),
     mentions: extractMentions(contextInfo),
     reference: buildReference(contextInfo, context, chatId),
+    ...idPairsField(keyIdPairs(key)),
   };
 }
 
@@ -549,6 +588,7 @@ export function mapMessageUpdates(
         authorId,
         timestamp: new Date(),
         content: undefined,
+        ...idPairsField(keyIdPairs(key)),
       });
       continue;
     }
@@ -568,6 +608,7 @@ export function mapMessageUpdates(
           authorId,
           timestamp: new Date(),
           content: extraction.content,
+          ...idPairsField(keyIdPairs(key)),
         });
       }
     }
@@ -593,6 +634,7 @@ export function mapMessagesDelete(
       authorId: resolveAuthorId(key, context.selfId, chatId),
       timestamp: new Date(),
       content: undefined,
+      ...idPairsField(keyIdPairs(key)),
     });
   }
   return events;
@@ -632,6 +674,10 @@ export function mapReaction(
     reactorId,
     timestamp: millis !== undefined && millis > 0 ? new Date(millis) : new Date(),
     emoji,
+    ...idPairsField([
+      ...keyIdPairs(key),
+      ...(reaction.key != null ? keyIdPairs(reaction.key) : []),
+    ]),
   };
 }
 
@@ -643,9 +689,13 @@ export function mapGroupParticipants(
   const groupId = normalizeJid(event.id);
   if (!present(groupId)) return null;
   const participantIds: UserId[] = [];
+  const idPairs: BackendIdPair[] = [];
   for (const participant of event.participants) {
     const id = normalizeJid(participant.id);
-    if (present(id)) participantIds.push(id);
+    if (!present(id)) continue;
+    participantIds.push(id);
+    const altId = participantAltId(participant);
+    if (altId !== undefined) idPairs.push({ id, altId });
   }
   if (participantIds.length === 0) return null;
   const action: GroupParticipantAction =
@@ -656,13 +706,19 @@ export function mapGroupParticipants(
       ? event.action
       : "other";
   const timestamp = new Date();
+  const actorId = present(event.author) ? normalizeJid(event.author) : undefined;
+  const actorAltId = present(event.authorPn) ? normalizeJid(event.authorPn) : undefined;
+  if (actorId !== undefined && actorAltId !== undefined) {
+    idPairs.push({ id: actorId, altId: actorAltId });
+  }
   return {
     id: `${groupId}:${event.action}:${timestamp.getTime()}:${participantIds.join(",")}`,
     groupId,
     action,
     participantIds,
-    actorId: present(event.author) ? normalizeJid(event.author) : undefined,
+    actorId,
     timestamp,
+    ...idPairsField(idPairs),
   };
 }
 
@@ -712,6 +768,7 @@ function mapParticipant(participant: ProviderGroupParticipant): DomainGroupParti
         : "member";
   return {
     id: normalizeJid(participant.id),
+    altId: participantAltId(participant),
     role,
     name: participant.name ?? participant.notify ?? undefined,
   };

@@ -11,6 +11,21 @@ import type { ChatKind, GroupParticipantAction, GroupUpdateChanges } from "../en
  * may reference a specific provider — all types are library domain types.
  */
 
+/**
+ * Two ids of the same account in different addressing schemes.
+ *
+ * WhatsApp addresses an account either by phone number (`<digits>@s.whatsapp.net`)
+ * or by linked id (`<digits>@lid`, an opaque id that hides the number); see
+ * https://baileys.wiki/concepts/jids for the full model. `id`/`altId` are the
+ * two forms — which end holds which scheme is not fixed, both refer to the
+ * same account. Pairs are recorded by the core so `client.users` can resolve
+ * phone numbers for linked ids.
+ */
+export interface BackendIdPair {
+  readonly id: UserId;
+  readonly altId: UserId;
+}
+
 /** A quoted (replied-to) message, as far as the provider knows it. */
 export interface BackendMessageReference {
   readonly messageId: string;
@@ -37,6 +52,11 @@ export interface BackendMessageEvent {
   /** Users mentioned in the message, when the provider reports them. */
   readonly mentions: readonly UserId[];
   readonly reference: BackendMessageReference | undefined;
+  /**
+   * Known LID ↔ phone-number id pairs seen on this message (author and chat),
+   * when the provider reported both schemes.
+   */
+  readonly idPairs?: readonly BackendIdPair[] | undefined;
 }
 
 /** A message was edited or deleted. */
@@ -49,6 +69,8 @@ export interface BackendMessageUpdateEvent {
   readonly timestamp: Date;
   /** New content for edits; `undefined` for deletions. */
   readonly content: MessageContent | undefined;
+  /** Known LID ↔ phone-number id pairs seen on this message's key, when reported. */
+  readonly idPairs?: readonly BackendIdPair[] | undefined;
 }
 
 /** Someone reacted to (or removed a reaction from) a message. */
@@ -64,6 +86,8 @@ export interface BackendReactionEvent {
   readonly timestamp: Date;
   /** Emoji that was added, or `null` when the reaction was removed. */
   readonly emoji: string | null;
+  /** Known LID ↔ phone-number id pairs (reacted-to message and reactor), when reported. */
+  readonly idPairs?: readonly BackendIdPair[] | undefined;
 }
 
 /** Membership/administrative changes inside a group. */
@@ -75,6 +99,12 @@ export interface BackendGroupParticipantsEvent {
   /** Who performed the action, when the provider reports an actor. */
   readonly actorId: UserId | undefined;
   readonly timestamp: Date;
+  /**
+   * Known LID ↔ phone-number id pairs (actor and affected participants), when
+   * the provider reported both schemes. Includes participants that are no
+   * longer in the group, whose pair would otherwise be lost.
+   */
+  readonly idPairs?: readonly BackendIdPair[] | undefined;
 }
 
 /** Group metadata changes (name, description, settings). */

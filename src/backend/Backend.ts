@@ -156,4 +156,18 @@ export interface WhatsAppBackend {
   requestPairingCode?(phoneNumber: string): Promise<string>;
   /** Invalidates the current session on the provider (remote logout). */
   logout?(): Promise<void>;
+
+  // --- identity resolution ------------------------------------------------------
+
+  /**
+   * Resolves a linked id (`<digits>@lid`) to the account's phone-number
+   * digits (international, no `+`), or `null` when the provider cannot map
+   * it. (JID vs linked id: https://baileys.wiki/concepts/jids)
+   */
+  getPhoneNumberForLid?(lid: UserId): Promise<string | null>;
+  /**
+   * Resolves phone-number digits (international, no `+`) to the account's
+   * linked id (`<digits>@lid`), or `null` when the provider cannot map it.
+   */
+  getLidForPhoneNumber?(phone: string): Promise<UserId | null>;
 }

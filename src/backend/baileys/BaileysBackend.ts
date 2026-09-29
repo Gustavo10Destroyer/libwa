@@ -8,8 +8,9 @@ import type {
   WAMessageKey,
 } from "@whiskeysockets/baileys";
 import type { DisconnectReason } from "../../core/DisconnectReason.js";
-import type { ChatId, Unsubscribe } from "../../core/ids.js";
+import type { ChatId, Unsubscribe, UserId } from "../../core/ids.js";
 import type { GroupMetadata } from "../../entities/Chat.js";
+import { phoneFromId } from "../../entities/User.js";
 import {
   ConnectionError,
   MessageError,
@@ -333,6 +334,30 @@ class BaileysBackend implements WhatsAppBackend {
       this.#logger.warn("provider logout failed:", errorMessage(error));
     } finally {
       await this.#teardownSocket();
+    }
+  }
+
+  // --- identity resolution ------------------------------------------------------
+
+  async getPhoneNumberForLid(lid: UserId): Promise<string | null> {
+    const socket = this.#requireSocket();
+    try {
+      const jid = await socket.signalRepository.lidMapping.getPNForLID(lid);
+      if (jid === null) return null;
+      return phoneFromId(jidNormalizedUser(jid)) ?? null;
+    } catch (error) {
+      rethrowAsBackendError(`Resolve phone number for ${lid}`, error);
+    }
+  }
+
+  async getLidForPhoneNumber(phone: string): Promise<UserId | null> {
+    const socket = this.#requireSocket();
+    try {
+      const lid = await socket.signalRepository.lidMapping.getLIDForPN(`${phone}@s.whatsapp.net`);
+      if (lid === null) return null;
+      return jidNormalizedUser(lid);
+    } catch (error) {
+      rethrowAsBackendError(`Resolve linked id for ${phone}`, error);
     }
   }
 
