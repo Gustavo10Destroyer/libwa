@@ -125,15 +125,18 @@ export class EntityFactory {
     const group = this.group(groupId);
     const known = this.#groupMetadata.get(groupId);
     if (known !== undefined) {
-      this.#groupMetadata.set(groupId, {
+      const merged: GroupMetadata = {
         ...known,
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.description !== undefined ? { description: changes.description } : {}),
         ...(changes.announceOnly !== undefined ? { announceOnly: changes.announceOnly } : {}),
         ...(changes.locked !== undefined ? { locked: changes.locked } : {}),
-      });
-    }
-    if (changes.name !== undefined) {
+      };
+      this.#groupMetadata.set(groupId, merged);
+      // Keep the instance metadata in sync: `Group.name`/`description` prefer
+      // metadata over the chat field, so a stale copy would shadow the change.
+      group.applyMetadata(merged);
+    } else if (changes.name !== undefined) {
       group.updateName(changes.name);
     }
     return group;
