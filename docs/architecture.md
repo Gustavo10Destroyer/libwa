@@ -39,6 +39,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 | `MessageService` (`client.messages`) | Validates/normalizes `ReplyContent`, resolves send targets, delegates to the backend, converts confirmations back into domain `Message`s. React/edit/delete with capability checks. |
 | `GroupService` (`client.groups`) | Metadata fetch + member/setting operations, keeping cached group metadata in sync. |
 | `CommandRegistry` (`client.commands`) | Registration/aliases/uniqueness + prefix parsing. Data only; execution happens in the dispatch pipeline. |
+| `UserService` (`client.users`) | Phone number ↔ linked id (`@lid`) resolution: recorded id pairs answer instantly, backend capabilities (`getPhoneNumberForLid`/`getLidForPhoneNumber`) fill the gaps. |
 
 ### Entities
 
@@ -77,6 +78,7 @@ Key properties:
 - **Nothing provider-shaped crosses the boundary.** Mappers normalize wrappers (ephemeral/view-once/device-sent/edit), timestamps (seconds/Long → `Date`), jids (device suffix stripping), and every content type into the `MessageContent` union.
 - **Null means "no event."** Protocol/reaction/poll-update payloads and history sync upserts never surface.
 - **Media stays lazy.** Mappers attach `download()` closures that fetch bytes through the backend's raw-message cache; applications only see `Uint8Array`s.
+- **Identity duality is preserved.** Message keys, group metadata participants and membership events carry LID ↔ phone-number pairs (`idPairs`, `GroupParticipant.altId`); the factory records them so `client.users` can resolve phone numbers for linked ids (see https://baileys.wiki/concepts/jids).
 
 ## Backend contract
 
@@ -88,7 +90,7 @@ sendMessage(request) · downloadMedia(request) · getGroupMetadata(chatId)
 on(event, listener) → Unsubscribe
 ```
 
-plus **optional capabilities** (`react?`, `editMessage?`, `deleteMessage?`, `updateGroupParticipants?`, `updateGroupName?`, `updateGroupDescription?`, `requestPairingCode?`, `logout?`). The core checks for the method before calling and raises `UnsupportedOperationError` when absent — capability discovery stays honest instead of pretending every provider can do everything.
+plus **optional capabilities** (`react?`, `editMessage?`, `deleteMessage?`, `updateGroupParticipants?`, `updateGroupName?`, `updateGroupDescription?`, `requestPairingCode?`, `logout?`, `getPhoneNumberForLid?`, `getLidForPhoneNumber?`). The core checks for the method before calling and raises `UnsupportedOperationError` when absent — capability discovery stays honest instead of pretending every provider can do everything.
 
 `BackendConnectOptions` is the backend's lifeline into infrastructure: `sessionId`, `sessionStore`, `logger`, `pairingPhoneNumber`. Backends persist **only** through the store they are given.
 
