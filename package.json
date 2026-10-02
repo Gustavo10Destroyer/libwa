@@ -8,7 +8,9 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -25,29 +27,32 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "check:exports": "node scripts/check-exports.mjs",
     "verify": "npm run typecheck && npm run test && npm run lint && npm run build && npm run check:exports",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run verify"
   },
   "keywords": ["whatsapp", "bot", "baileys", "interactions", "typescript"],
   "author": "Gustavo10Destroyer",
   "license": "MIT",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20.0.0"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc.14"
+    "@whiskeysockets/baileys": "7.0.0-rc14"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.13.5",
+    "@vitest/coverage-v8": "^3.0.5",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }

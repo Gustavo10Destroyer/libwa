@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       reportsDirectory: "coverage",
       include: ["src/**/*.ts"],
-      exclude: ["src/backend/baileys/**", "src/index.ts"],
+      exclude: ["src/index.ts"],
     },
   },
 });
