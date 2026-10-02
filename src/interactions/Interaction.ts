@@ -3,7 +3,7 @@ import type { Chat } from "../entities/Chat.js";
 import type { Group, GroupMember } from "../entities/Group.js";
 import type { Message } from "../entities/Message.js";
 import type { User } from "../entities/User.js";
-import type { ReplyContent } from "../messaging/types.js";
+import type { ReplyContent, SendOptions } from "../messaging/types.js";
 import type { ButtonInteraction } from "./ButtonInteraction.js";
 import type { CommandInteraction } from "./CommandInteraction.js";
 import type { GroupParticipantInteraction } from "./GroupParticipantInteraction.js";
@@ -146,14 +146,20 @@ export abstract class Interaction {
   /**
    * Replies in this interaction's chat, quoting the relevant message when
    * one exists. Accepts a plain string or a structured payload.
+   *
+   * `options` is forwarded to `client.messages.send`, so mentions,
+   * `quote` and `replyToMessageId` all work here too:
+   * `i.reply("hi", { mentions: [i.author.id] })`.
+   *
+   * An explicit `options.replyToMessageId` wins over the interaction's own
+   * quote; an explicit `options.quote` still takes precedence over both
+   * (see {@link SendOptions.quote}).
    */
-  reply(content: ReplyContent): Promise<Message> {
-    return this.client.messages.send(
-      this.chat,
-      content,
-      this.#replyToMessageId === undefined
-        ? undefined
-        : { replyToMessageId: this.#replyToMessageId },
-    );
+  reply(content: ReplyContent, options?: SendOptions): Promise<Message> {
+    const merged: SendOptions = { ...options };
+    if (this.#replyToMessageId !== undefined && merged.replyToMessageId === undefined) {
+      merged.replyToMessageId = this.#replyToMessageId;
+    }
+    return this.client.messages.send(this.chat, content, merged);
   }
 }

@@ -1,6 +1,6 @@
 import { contentAttachments, contentText } from "../core/content.js";
 import type { Attachment, MessageContent } from "../core/content.js";
-import type { ReplyContent } from "../messaging/types.js";
+import type { ReplyContent, SendOptions } from "../messaging/types.js";
 import type { Chat } from "./Chat.js";
 import type { User } from "./User.js";
 
@@ -71,9 +71,14 @@ export class Message {
     return this.reference !== undefined;
   }
 
-  /** Replies to this message in the same chat. */
-  reply(content: ReplyContent): Promise<Message> {
-    return this.chat.client.messages.send(this.chat, content, { quote: this });
+  /**
+   * Replies to this message in the same chat, quoting it.
+   *
+   * `options` is forwarded to `client.messages.send` (mentions, ...), but
+   * `quote` is always this message — that is what "reply" means here.
+   */
+  reply(content: ReplyContent, options?: SendOptions): Promise<Message> {
+    return this.chat.client.messages.send(this.chat, content, { ...options, quote: this });
   }
 
   /** Adds (or removes, with `null`) the bot's reaction on this message. */

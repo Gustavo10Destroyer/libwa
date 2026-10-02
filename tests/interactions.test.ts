@@ -195,6 +195,39 @@ describe("InteractionFactory messages", () => {
     expect(backend.sent[0]?.replyToMessageId).toBe("msg-1");
     expect(backend.sent[0]?.content).toEqual({ kind: "text", text: "pong" });
   });
+
+  it("forwards reply options alongside its own quote", async () => {
+    const backend = new MockBackend();
+    const client = new Client({ backend, sessionStore: new MemorySessionStore() });
+    const factory = new InteractionFactory(
+      client,
+      new EntityFactory(client),
+      new CommandRegistry(),
+      { prefixes: ["!"], ignoreSelf: false },
+    );
+    const interaction = factory.fromMessage(messageEvent());
+
+    await interaction.reply("pong", { mentions: ["222@s.whatsapp.net"] });
+
+    expect(backend.sent[0]?.replyToMessageId).toBe("msg-1");
+    expect(backend.sent[0]?.mentionUserIds).toEqual(["222@s.whatsapp.net"]);
+  });
+
+  it("lets an explicit reply target win over the interaction's quote", async () => {
+    const backend = new MockBackend();
+    const client = new Client({ backend, sessionStore: new MemorySessionStore() });
+    const factory = new InteractionFactory(
+      client,
+      new EntityFactory(client),
+      new CommandRegistry(),
+      { prefixes: ["!"], ignoreSelf: false },
+    );
+    const interaction = factory.fromMessage(messageEvent());
+
+    await interaction.reply("pong", { replyToMessageId: "other-1" });
+
+    expect(backend.sent[0]?.replyToMessageId).toBe("other-1");
+  });
 });
 
 describe("InteractionFactory other events", () => {
@@ -288,6 +321,21 @@ describe("InteractionFactory other events", () => {
     expect(interaction.isGroupUpdate()).toBe(true);
     if (!interaction.isGroupUpdate()) return;
     expect(interaction.changes.name).toBe("Renamed Group");
+    expect(interaction.group.name).toBe("Renamed Group");
+  });
+
+  it("clears a group description instead of skipping it", () => {
+    const { factory, entities } = harness();
+    entities.applyGroupMetadata(groupMetadataFixture());
+    const interaction = factory.fromGroupUpdate(
+      groupUpdateEvent({ changes: { description: undefined } }),
+    );
+    expect(interaction.isGroupUpdate()).toBe(true);
+    if (!interaction.isGroupUpdate()) return;
+    expect(interaction.hasDescriptionChange).toBe(true);
+    expect(interaction.hasNameChange).toBe(true);
+    expect(entities.groupMetadata("123456789@g.us")?.description).toBeUndefined();
+    expect(interaction.group.description).toBeUndefined();
     expect(interaction.group.name).toBe("Renamed Group");
   });
 });

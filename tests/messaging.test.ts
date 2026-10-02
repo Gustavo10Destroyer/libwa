@@ -52,6 +52,29 @@ describe("MessageService", () => {
     expect(backend.sent[2]?.replyToMessageId).toBe("abc");
   });
 
+  it("keeps option mentions on plain string content", async () => {
+    await client.messages.send("111@s.whatsapp.net", "hello", {
+      mentions: ["222@s.whatsapp.net"],
+    });
+    expect(backend.sent[0]?.mentionUserIds).toEqual(["222@s.whatsapp.net"]);
+  });
+
+  it("unions payload and option mentions for object payloads", async () => {
+    await client.messages.send(
+      "111@s.whatsapp.net",
+      { text: "hi", mentions: ["222@s.whatsapp.net"] },
+      { mentions: ["222@s.whatsapp.net", "333@s.whatsapp.net"] },
+    );
+    expect(backend.sent[0]?.mentionUserIds).toEqual(["222@s.whatsapp.net", "333@s.whatsapp.net"]);
+  });
+
+  it("deduplicates mentions given as User objects and ids", async () => {
+    await client.messages.send("111@s.whatsapp.net", "hi", {
+      mentions: [new User({ id: "222@s.whatsapp.net", name: "Bob" }), "222@s.whatsapp.net"],
+    });
+    expect(backend.sent[0]?.mentionUserIds).toEqual(["222@s.whatsapp.net"]);
+  });
+
   it("sends media and wires lazy downloads", async () => {
     backend.media = new Uint8Array([9, 9]);
     const message = await client.messages.send("111@s.whatsapp.net", {
@@ -180,6 +203,9 @@ describe("Message entity actions", () => {
     const sent = await client.messages.send("111@s.whatsapp.net", "root");
     const reply = await sent.reply("answer");
     expect(backend.sent[1]?.replyToMessageId).toBe("sent-1");
+    await sent.reply("answer again", { mentions: ["222@s.whatsapp.net"] });
+    expect(backend.sent[2]?.replyToMessageId).toBe("sent-1");
+    expect(backend.sent[2]?.mentionUserIds).toEqual(["222@s.whatsapp.net"]);
     await reply.react("🎉");
     expect(backend.reactCalls[0]?.messageId).toBe("sent-2");
     const spy = vi.spyOn(client.messages, "delete");

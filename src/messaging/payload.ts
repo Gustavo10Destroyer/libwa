@@ -27,17 +27,19 @@ function mediaBytes(source: MediaSource): { data: Uint8Array; mimetype: string |
   return { data: source.data, mimetype: source.mimetype };
 }
 
+function addMentions(ids: Set<UserId>, entries: readonly (User | UserId)[] | undefined): void {
+  for (const entry of entries ?? []) {
+    ids.add(typeof entry === "string" ? entry : entry.id);
+  }
+}
+
 function resolveMentions(
   payload: MessagePayload,
   options: SendOptions | undefined,
 ): readonly UserId[] {
   const ids = new Set<UserId>();
-  for (const entry of payload.mentions ?? []) {
-    ids.add(typeof entry === "string" ? entry : entry.id);
-  }
-  for (const entry of options?.mentions ?? []) {
-    ids.add(typeof entry === "string" ? entry : entry.id);
-  }
+  addMentions(ids, payload.mentions);
+  addMentions(ids, options?.mentions);
   return [...ids];
 }
 
@@ -66,7 +68,10 @@ export function normalizeReplyContent(
     if (content.length === 0) {
       throw new ValidationError("Cannot send an empty string.", { code: "ERR_EMPTY_MESSAGE" });
     }
-    return { content: { kind: "text", text: content }, mentions: [] };
+    return {
+      content: { kind: "text", text: content },
+      mentions: resolveMentions({ text: content }, options),
+    };
   }
 
   const count = bodyCount(content);
