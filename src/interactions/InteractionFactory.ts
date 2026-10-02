@@ -7,6 +7,7 @@ import type {
   BackendReactionEvent,
 } from "../backend/events.js";
 import type { CommandRegistry } from "../commands/CommandRegistry.js";
+import { nextSequence } from "../core/sequence.js";
 import type { EntityFactory } from "../entities/EntityFactory.js";
 import { ButtonInteraction } from "./ButtonInteraction.js";
 import { CommandInteraction } from "./CommandInteraction.js";
@@ -126,8 +127,11 @@ export class InteractionFactory {
     this.#entities.recordIdPairs(event.idPairs);
     const chat = this.#entities.chat({ id: event.chatId, kind: event.chatKind });
     const author = event.authorId === undefined ? undefined : this.#entities.user(event.authorId);
+    const base = `${event.chatId}:${event.messageId}:${event.action}:${event.timestamp.getTime()}`;
     return new MessageUpdateInteraction(this.#client, {
-      id: `${event.chatId}:${event.messageId}:${event.action}:${event.timestamp.getTime()}`,
+      // An edit and a delete of one message can land in the same
+      // millisecond; the sequence is what keeps their ids distinct.
+      id: `${base}:${nextSequence()}`,
       chat,
       author,
       timestamp: event.timestamp,

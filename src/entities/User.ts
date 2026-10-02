@@ -85,11 +85,12 @@ export class User {
   /**
    * Best human-readable label, in `name → phone → id` order.
    *
-   * A linked id without a resolved phone number and without a known name
-   * shows the raw `…@lid` id.
+   * An empty name is not a name: it falls through to the phone number (or the
+   * id) rather than rendering `""`. A linked id without a resolved phone
+   * number and without a known name shows the raw `…@lid` id.
    */
   get displayName(): string {
-    return this.name ?? this.phone ?? this.id;
+    return this.name || this.phone || this.id;
   }
 
   /** Whether `other` is the same account. Compares ids only. */

@@ -1,6 +1,8 @@
 import type { WhatsAppBackend } from "../backend/Backend.js";
+import { LruMap } from "../core/LruMap.js";
 import type { ChatId, UserId } from "../core/ids.js";
 import type { EntityFactory } from "../entities/EntityFactory.js";
+import { MAX_GROUP_METADATA } from "../entities/EntityFactory.js";
 import type { Group } from "../entities/Group.js";
 import {
   UnsupportedOperationError,
@@ -38,14 +40,29 @@ interface UserLike {
 export class GroupService {
   readonly #backend: WhatsAppBackend;
   readonly #entities: EntityFactory;
-  /** When each group's last provider metadata attempt started (success or failure). */
-  readonly #attemptedAt = new Map<ChatId, number>();
+  /**
+   * When each group's last provider metadata attempt started (success or
+   * failure). Bounded like the metadata cache it guards: an unbounded clock
+   * per group ever seen would outlive any single session.
+   */
+  readonly #attemptedAt = new LruMap<number>(MAX_GROUP_METADATA);
   /** In-flight provider metadata fetches, keyed by group — shared by concurrent callers. */
   readonly #inflight = new Map<ChatId, Promise<Group>>();
 
   constructor(backend: WhatsAppBackend, entities: EntityFactory) {
     this.#backend = backend;
     this.#entities = entities;
+  }
+
+  /**
+   * Forgets when each group was last fetched (called on logout/destroy).
+   *
+   * In-flight fetches are left alone: their own `finally` removes them, and
+   * clearing the map underneath would let a late completion delete a newer
+   * request's entry.
+   */
+  reset(): void {
+    this.#attemptedAt.clear();
   }
 
   /**
@@ -68,8 +85,14 @@ export class GroupService {
   async fetch(target: GroupTarget): Promise<Group> {
     const chatId = this.#chatId(target);
     this.#attemptedAt.set(chatId, Date.now());
+    const revision = this.#entities.groupRevision(chatId);
     try {
       const metadata = await this.#backend.getGroupMetadata(chatId);
+      if (this.#entities.groupRevision(chatId) !== revision) {
+        // A rename/description/membership write landed while this request was
+        // in flight: the snapshot predates it and must not revert it.
+        return this.#entities.group(chatId);
+      }
       return this.#entities.applyGroupMetadata(metadata);
     } catch (error) {
       throw rethrowAsBackendError(`Failed to fetch group ${chatId}`, error);
@@ -150,9 +173,10 @@ export class GroupService {
     } catch (error) {
       throw rethrowAsBackendError(`Failed to rename group ${chatId}`, error);
     }
-    const known = this.#entities.groupMetadata(chatId);
-    if (known !== undefined) {
-      this.#entities.applyGroupMetadata({ ...known, name });
+    // Applied through applyGroupChanges so the revision bump protects a
+    // metadata fetch that is still in flight from reverting this rename.
+    if (this.#entities.groupMetadata(chatId) !== undefined) {
+      this.#entities.applyGroupChanges(chatId, { name });
     }
   }
 
@@ -169,9 +193,10 @@ export class GroupService {
     } catch (error) {
       throw rethrowAsBackendError(`Failed to update description of group ${chatId}`, error);
     }
-    const known = this.#entities.groupMetadata(chatId);
-    if (known !== undefined) {
-      this.#entities.applyGroupMetadata({ ...known, description });
+    // See rename(): the revision bump is what keeps an in-flight fetch from
+    // restoring the description this call just changed (or cleared).
+    if (this.#entities.groupMetadata(chatId) !== undefined) {
+      this.#entities.applyGroupChanges(chatId, { description });
     }
   }
 

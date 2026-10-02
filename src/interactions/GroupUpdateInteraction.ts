@@ -38,11 +38,14 @@ export class GroupUpdateInteraction extends Interaction {
 
   /** True when the group name changed. */
   get hasNameChange(): boolean {
-    return this.changes.name !== undefined;
+    return "name" in this.changes;
   }
 
-  /** True when the group description changed. */
+  /**
+   * True when the group description changed — including when it was cleared,
+   * which is represented as a present key with an `undefined` value.
+   */
   get hasDescriptionChange(): boolean {
-    return this.changes.description !== undefined;
+    return "description" in this.changes;
   }
 }

@@ -40,7 +40,7 @@ export class Chat {
     this.client = init.client;
     this.id = init.id;
     this.kind = init.kind;
-    this.#name = init.name;
+    this.#name = init.name === "" ? undefined : init.name;
   }
 
   /** Human-readable chat name when the provider knows it (group subject, ...). */
@@ -48,9 +48,15 @@ export class Chat {
     return this.#name;
   }
 
-  /** Best human-readable label for this chat. */
+  /**
+   * Best human-readable label for this chat.
+   *
+   * Reads the virtual {@link Chat.name} getter, so a `Group` shows its
+   * metadata subject rather than the possibly stale chat field. An empty name
+   * is no name: it falls through to the id instead of rendering `""`.
+   */
   get displayName(): string {
-    return this.#name ?? this.id;
+    return this.name || this.id;
   }
 
   /** True when this chat is a group. Narrows `this` to `Group`. */
@@ -75,9 +81,16 @@ export class Chat {
     return this.client.messages.send(this, content);
   }
 
-  /** Synchronizes the locally known name (used by group updates and metadata fetches). */
+  /**
+   * Synchronizes the locally known name (used by group updates and metadata
+   * fetches). An empty name clears it.
+   *
+   * On a `Group` this only seeds the fallback: `Group.name` prefers the
+   * cached metadata's subject, so a `groupUpdate` or `groups.fetch()` will
+   * shadow whatever is written here until the metadata itself changes.
+   */
   updateName(name: string | undefined): void {
-    this.#name = name;
+    this.#name = name === "" ? undefined : name;
   }
 
   toString(): string {
@@ -133,12 +146,27 @@ export interface GroupMetadata {
 /** Action applied to group participants. */
 export type GroupParticipantAction = "add" | "remove" | "promote" | "demote" | "other";
 
-/** What changed in a group. Only fields present in the change event are defined. */
+/**
+ * What changed in a group.
+ *
+ * A key that is absent did not change; a key present with an `undefined`
+ * value was cleared (group description has no empty-string form — clearing it
+ * yields `undefined`, matching {@link GroupMetadata.description}).
+ */
+/**
+ * The fields a group update actually changed — a diff, never a snapshot.
+ *
+ * Only keys the provider reported as changed are present, so a key's
+ * presence is the "did this change?" test (`"name" in changes`).
+ * `description` follows the {@link GroupUpdateChanges} clear convention:
+ * a present key with an `undefined` value means the description was
+ * cleared, while an absent key means it was not part of the update at all.
+ */
 export interface GroupUpdateChanges {
-  readonly name?: string;
-  readonly description?: string;
-  readonly announceOnly?: boolean;
-  readonly locked?: boolean;
+  readonly name?: string | undefined;
+  readonly description?: string | undefined;
+  readonly announceOnly?: boolean | undefined;
+  readonly locked?: boolean | undefined;
 }
 
 export interface GroupInit {
@@ -178,8 +206,13 @@ export class Group extends Chat {
     return this.#metadata;
   }
 
+  /**
+   * Group subject: the cached metadata's name when known, otherwise the
+   * locally remembered one. The metadata value wins — see {@link Chat.updateName}.
+   */
   override get name(): string | undefined {
-    return this.#metadata?.name ?? super.name;
+    const metadataName = this.#metadata?.name;
+    return metadataName === undefined || metadataName === "" ? super.name : metadataName;
   }
 
   /** Group description when known. */
@@ -229,8 +262,16 @@ export class Group extends Chat {
     return this.#metadata?.announceOnly;
   }
 
-  /** Merges freshly fetched metadata into this instance. */
+  /**
+   * Merges freshly fetched metadata into this instance *and* into the entity
+   * factory's cache.
+   *
+   * Keeping both in sync matters: a write through this method alone used to
+   * leave the factory's copy stale, so the next group update took the "no
+   * cached metadata" path and dropped its changes.
+   */
   applyMetadata(metadata: GroupMetadata): void {
+    this.#entities?.storeGroupMetadata(metadata);
     this.#metadata = metadata;
     this.updateName(metadata.name);
   }
@@ -278,7 +319,9 @@ export class Group extends Chat {
     if (this.#entities !== undefined) {
       return this.#entities.user(id, name);
     }
-    return new User({ id, name, isMe: this.client.me?.id === id });
+    // No factory handed to this group: resolve through the client so recorded
+    // LID ↔ phone-number pairs are still honored.
+    return new User({ id, name, isMe: this.client.isSelf(id) });
   }
 
   /** Finds a participant record, matching the id against both addressing schemes. */
