@@ -18,6 +18,23 @@ export interface ParsedCommand {
 const COMMAND_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 /**
+ * The longest configured prefix the text actually starts with.
+ *
+ * `["!", "!!"]` must let `!!help` parse as the `!!` command instead of
+ * handing `!help`-style leftovers to `!`; ties keep the first entry so the
+ * result never depends on which prefix is "more specific".
+ */
+function matchingPrefix(text: string, prefixes: readonly string[]): string | undefined {
+  let prefix: string | undefined;
+  for (const candidate of prefixes) {
+    if (text.startsWith(candidate) && (prefix === undefined || candidate.length > prefix.length)) {
+      prefix = candidate;
+    }
+  }
+  return prefix;
+}
+
+/**
  * Registry of bot commands.
  *
  * Holds definitions, validates them on registration and parses incoming text
@@ -27,7 +44,13 @@ export class CommandRegistry {
   readonly #commands = new Map<string, CommandDefinition>();
   readonly #aliases = new Map<string, string>();
 
-  /** Registers a command. Throws {@link ValidationError} on invalid/duplicate names. */
+  /**
+   * Registers a command. Throws {@link ValidationError} on invalid/duplicate names.
+   *
+   * Everything is validated before anything is committed, so a rejected
+   * registration leaves the registry exactly as it was: the command itself,
+   * and no alias, becomes live only once the whole definition is known good.
+   */
   register(definition: CommandDefinition): this {
     const name = definition.name.toLowerCase();
     if (!COMMAND_NAME_PATTERN.test(name)) {
@@ -41,7 +64,9 @@ export class CommandRegistry {
         code: "ERR_DUPLICATE_COMMAND",
       });
     }
-    this.#commands.set(name, definition);
+
+    const aliases: string[] = [];
+    const seen = new Set<string>();
     for (const alias of definition.aliases ?? []) {
       const key = alias.toLowerCase();
       if (!COMMAND_NAME_PATTERN.test(key)) {
@@ -49,11 +74,17 @@ export class CommandRegistry {
           code: "ERR_INVALID_COMMAND_NAME",
         });
       }
-      if (this.#commands.has(key) || this.#aliases.has(key)) {
+      if (key === name || seen.has(key) || this.#commands.has(key) || this.#aliases.has(key)) {
         throw new ValidationError(`Alias "${alias}" conflicts with an existing command.`, {
           code: "ERR_DUPLICATE_COMMAND",
         });
       }
+      seen.add(key);
+      aliases.push(key);
+    }
+
+    this.#commands.set(name, definition);
+    for (const key of aliases) {
       this.#aliases.set(key, name);
     }
     return this;
@@ -118,10 +149,12 @@ export class CommandRegistry {
    *
    * Returns `null` when the text is not a command; otherwise returns the
    * parsed name/args and the registered definition (when there is one).
-   * Matching is always case-insensitive for command names.
+   * Matching is always case-insensitive for command names, and the longest
+   * prefix that matches wins, so overlapping prefixes (e.g. `"!"` and
+   * `"!!"`) resolve the same way regardless of array order.
    */
   parse(text: string, prefixes: readonly string[]): ParsedCommand | null {
-    const prefix = prefixes.find((candidate) => text.startsWith(candidate));
+    const prefix = matchingPrefix(text, prefixes);
     if (prefix === undefined) {
       return null;
     }

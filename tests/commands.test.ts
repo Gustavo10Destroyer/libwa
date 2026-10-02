@@ -61,6 +61,51 @@ describe("CommandRegistry registration", () => {
     );
   });
 
+  it("leaves the registry untouched when an alias is invalid", () => {
+    const registry = new CommandRegistry();
+    expect(() =>
+      registry.register(definition({ name: "help", aliases: ["h", "no spaces"] })),
+    ).toThrow(/Invalid alias/);
+    expect(registry.size).toBe(0);
+    expect(registry.has("help")).toBe(false);
+    expect(registry.resolve("h")).toBeUndefined();
+
+    const retry = definition({ name: "help", aliases: ["h"] });
+    registry.register(retry);
+    expect(registry.resolve("h")).toBe(retry);
+  });
+
+  it("leaves earlier aliases unregistered when a later one conflicts", () => {
+    const registry = new CommandRegistry();
+    const ping = definition({ name: "ping" });
+    registry.register(ping);
+
+    expect(() => registry.register(definition({ name: "help", aliases: ["ok", "ping"] }))).toThrow(
+      /conflicts/,
+    );
+
+    expect(registry.size).toBe(1);
+    expect(registry.has("help")).toBe(false);
+    expect(registry.resolve("ok")).toBeUndefined();
+    expect(registry.resolve("ping")).toBe(ping);
+  });
+
+  it("rejects an alias equal to the command name without committing", () => {
+    const registry = new CommandRegistry();
+    expect(() => registry.register(definition({ name: "help", aliases: ["HELP"] }))).toThrow(
+      /conflicts/,
+    );
+    expect(registry.size).toBe(0);
+  });
+
+  it("rejects duplicated aliases inside one definition without committing", () => {
+    const registry = new CommandRegistry();
+    expect(() => registry.register(definition({ name: "help", aliases: ["h", "H"] }))).toThrow(
+      /conflicts/,
+    );
+    expect(registry.size).toBe(0);
+  });
+
   it("unregisters commands and their aliases", () => {
     const registry = new CommandRegistry();
     registry.register(definition({ name: "ping", aliases: ["pong"] }));
@@ -121,6 +166,27 @@ describe("CommandRegistry.parse", () => {
     const registry = new CommandRegistry();
     expect(registry.parse("!-bad", prefixes)).toBeNull();
     expect(registry.parse("!!", prefixes)).toBeNull();
+  });
+
+  it("prefers the longest matching prefix regardless of order", () => {
+    const registry = new CommandRegistry();
+    const command = definition({ name: "help" });
+    registry.register(command);
+
+    for (const overlapping of [
+      ["!", "!!"],
+      ["!!", "!"],
+    ]) {
+      const deep = registry.parse("!!help", overlapping);
+      expect(deep?.prefix).toBe("!!");
+      expect(deep?.name).toBe("help");
+      expect(deep?.command).toBe(command);
+
+      const shallow = registry.parse("!help", overlapping);
+      expect(shallow?.prefix).toBe("!");
+      expect(shallow?.name).toBe("help");
+      expect(shallow?.command).toBe(command);
+    }
   });
 });
 
