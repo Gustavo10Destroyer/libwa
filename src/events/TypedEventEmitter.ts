@@ -23,6 +23,11 @@ export type ListenerOf<Map extends EventMapConstraint<Map>, Key extends keyof Ma
 
 type StoredListener = (...args: never[]) => unknown;
 
+interface ListenerEntry {
+  readonly listener: StoredListener;
+  readonly once: boolean;
+}
+
 export interface TypedEventEmitterOptions {
   /** Invoked when a listener throws or its promise rejects. */
   onListenerError?: (error: unknown, event: string) => void;
@@ -33,11 +38,11 @@ export interface TypedEventEmitterOptions {
  *
  * Listener arguments are inferred from the event name, async listeners are
  * supported (rejections are routed to `onListenerError` instead of crashing
- * the process), and listeners can be enumerated for pipeline dispatch.
+ * the process), and listeners are kept in one array per event so `on` and
+ * `once` listeners dispatch strictly in registration order.
  */
 export class TypedEventEmitter<Map extends EventMapConstraint<Map>> {
-  readonly #listeners = new Map<keyof Map, Set<StoredListener>>();
-  readonly #once = new Map<keyof Map, Set<StoredListener>>();
+  readonly #entries = new Map<keyof Map, ListenerEntry[]>();
   readonly #options: TypedEventEmitterOptions;
 
   constructor(options: TypedEventEmitterOptions = {}) {
@@ -57,12 +62,20 @@ export class TypedEventEmitter<Map extends EventMapConstraint<Map>> {
   /** Removes a previously registered listener (or all listeners when omitted). */
   off<Key extends keyof Map>(event: Key, listener?: ListenerOf<Map, Key>): void {
     if (listener === undefined) {
-      this.#listeners.delete(event);
-      this.#once.delete(event);
+      this.#entries.delete(event);
       return;
     }
-    this.#listeners.get(event)?.delete(listener as StoredListener);
-    this.#once.get(event)?.delete(listener as StoredListener);
+    const entries = this.#entries.get(event);
+    if (entries === undefined) {
+      return;
+    }
+    const stored = listener as StoredListener;
+    const remaining = entries.filter((entry) => entry.listener !== stored);
+    if (remaining.length === 0) {
+      this.#entries.delete(event);
+    } else {
+      this.#entries.set(event, remaining);
+    }
   }
 
   /**
@@ -75,42 +88,53 @@ export class TypedEventEmitter<Map extends EventMapConstraint<Map>> {
     });
   }
 
-  /** Emits `event` and awaits every listener sequentially. */
+  /** Emits `event` and awaits every listener sequentially in registration order. */
   async emitAsync<Key extends keyof Map>(event: Key, ...args: Map[Key]): Promise<void> {
-    const permanent = this.#listeners.get(event);
-    const single = this.#once.get(event);
-    if (permanent === undefined && single === undefined) {
+    const entries = this.#entries.get(event);
+    if (entries === undefined || entries.length === 0) {
       return;
     }
-    const snapshot = [...(permanent ?? []), ...(single ?? [])];
-    if (single !== undefined) {
-      this.#once.delete(event);
+    const snapshot = [...entries];
+    // Consume `once` listeners before dispatch so a re-entrant emit (from
+    // inside a listener) never fires them again.
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (entries[index]?.once === true) {
+        entries.splice(index, 1);
+      }
     }
-    for (const listener of snapshot) {
+    if (entries.length === 0 && this.#entries.get(event) === entries) {
+      this.#entries.delete(event);
+    }
+    for (const entry of snapshot) {
       try {
-        await (listener as (...listenerArgs: Map[Key]) => unknown)(...args);
+        await (entry.listener as (...listenerArgs: Map[Key]) => unknown)(...args);
       } catch (error) {
         this.#reportError(error, String(event));
       }
     }
   }
 
-  /** Returns a snapshot of the listeners registered for `event`. */
+  /**
+   * Returns a snapshot of the listeners registered for `event` in
+   * registration order. Non-consuming: `once` listeners stay registered for
+   * the next {@link emitAsync}.
+   */
   listenersOf<Key extends keyof Map>(event: Key): readonly ListenerOf<Map, Key>[] {
-    const permanent = this.#listeners.get(event);
-    const single = this.#once.get(event);
-    return [...(permanent ?? []), ...(single ?? [])] as unknown as readonly ListenerOf<Map, Key>[];
+    const entries = this.#entries.get(event);
+    if (entries === undefined) {
+      return [];
+    }
+    return entries.map((entry) => entry.listener) as unknown as readonly ListenerOf<Map, Key>[];
   }
 
   /** Returns true when at least one listener is registered for `event`. */
   hasListeners<Key extends keyof Map>(event: Key): boolean {
-    return (this.#listeners.get(event)?.size ?? 0) + (this.#once.get(event)?.size ?? 0) > 0;
+    return (this.#entries.get(event)?.length ?? 0) > 0;
   }
 
   /** Removes every listener of every event. */
   removeAllListeners(): void {
-    this.#listeners.clear();
-    this.#once.clear();
+    this.#entries.clear();
   }
 
   #add<Key extends keyof Map>(
@@ -118,16 +142,32 @@ export class TypedEventEmitter<Map extends EventMapConstraint<Map>> {
     listener: ListenerOf<Map, Key>,
     once: boolean,
   ): Unsubscribe {
-    const target = once ? this.#once : this.#listeners;
-    let set = target.get(event);
-    if (set === undefined) {
-      set = new Set();
-      target.set(event, set);
+    let entries = this.#entries.get(event);
+    if (entries === undefined) {
+      entries = [];
+      this.#entries.set(event, entries);
     }
     const stored = listener as StoredListener;
-    set.add(stored);
+    // One entry per listener per event: re-registering replaces the previous
+    // registration (the old `Set` storage behaved the same way).
+    const existing = entries.findIndex((entry) => entry.listener === stored);
+    if (existing !== -1) {
+      entries.splice(existing, 1);
+    }
+    const entry: ListenerEntry = { listener: stored, once };
+    entries.push(entry);
     return () => {
-      target.get(event)?.delete(stored);
+      const current = this.#entries.get(event);
+      if (current === undefined) {
+        return;
+      }
+      const index = current.indexOf(entry);
+      if (index !== -1) {
+        current.splice(index, 1);
+        if (current.length === 0) {
+          this.#entries.delete(event);
+        }
+      }
     };
   }
 

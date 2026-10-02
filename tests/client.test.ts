@@ -162,6 +162,30 @@ describe("Client lifecycle", () => {
     expect(client.isReady).toBe(false);
   });
 
+  it("forgets the logged-in user when logging out", async () => {
+    const backend = new CapableMockBackend();
+    const { client } = createClient(backend);
+    await login(client, backend);
+    expect(client.me).not.toBeNull();
+
+    await client.logout();
+
+    expect(client.me).toBeNull();
+    expect(client.isSelf(SELF_ID)).toBe(false);
+  });
+
+  it("forgets the logged-in user when destroyed", async () => {
+    const backend = new CapableMockBackend();
+    const { client } = createClient(backend);
+    await login(client, backend);
+    expect(client.me).not.toBeNull();
+
+    await client.destroy();
+
+    expect(client.me).toBeNull();
+    expect(client.isSelf(SELF_ID)).toBe(false);
+  });
+
   it("clears the session even when the backend lacks logout()", async () => {
     const backend = new MockBackend();
     const { client, store } = createClient(backend);
@@ -261,10 +285,45 @@ describe("Client interaction dispatch", () => {
     expect(update.group.name).toBe("Renamed Group");
 
     // Another event inside the TTL is served from the cache entirely.
-    backend.emit("groupUpdate", groupUpdateEvent({ id: "group-update-2" }));
+    backend.emit(
+      "groupUpdate",
+      groupUpdateEvent({ id: "group-update-2", changes: { announceOnly: true } }),
+    );
     await vi.waitFor(() => expect(received).toHaveLength(3));
     expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
     expect(received[2]?.group?.name).toBe("Renamed Group");
+    // The name already matched the cache, so only the real difference is reported.
+    const second = received[2];
+    if (second === undefined || !second.isGroupUpdate()) {
+      throw new Error("expected a group update interaction");
+    }
+    expect(second.changes).toEqual({ announceOnly: true });
+    expect(second.hasNameChange).toBe(false);
+  });
+
+  it("drops group updates that only restate what the cache already knows", async () => {
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+
+    backend.emit("groupParticipants", groupParticipantsEvent());
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
+
+    // A snapshot equal to the cached metadata is not a change.
+    backend.emit("groupUpdate", groupUpdateEvent({ id: "noop", changes: { name: "Test Group" } }));
+    // A genuine difference still dispatches.
+    backend.emit("groupUpdate", groupUpdateEvent({ id: "real" }));
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+
+    const update = received[1];
+    if (update === undefined || !update.isGroupUpdate()) {
+      throw new Error("expected a group update interaction");
+    }
+    expect(update.changes).toEqual({ name: "Renamed Group" });
+    expect(update.hasNameChange).toBe(true);
+    expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
   });
 
   it("keeps membership current from participant events without refetching", async () => {

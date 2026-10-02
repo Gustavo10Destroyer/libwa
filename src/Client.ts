@@ -8,13 +8,14 @@ import type { BackendConnectionUpdate } from "./backend/events.js";
 import type { CommandDefinition } from "./commands/CommandDefinition.js";
 import { CommandRegistry } from "./commands/CommandRegistry.js";
 import { DisconnectReason, FATAL_DISCONNECT_REASONS } from "./core/DisconnectReason.js";
-import type { ChatId, Unsubscribe } from "./core/ids.js";
+import type { ChatId, Unsubscribe, UserId } from "./core/ids.js";
 import type { ChatKind } from "./entities/Chat.js";
 import { EntityFactory } from "./entities/EntityFactory.js";
 import type { User } from "./entities/User.js";
 import {
   AuthenticationError,
   ConnectionError,
+  UnsupportedOperationError,
   ValidationError,
   rethrowAsBackendError,
   toError,
@@ -86,6 +87,8 @@ export class Client {
   #login: LoginDeferred | undefined;
   #reconnectAttempt = 0;
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  #connecting: Promise<void> | undefined;
+  #loggingOut = false;
 
   constructor(options: ClientOptions = {}) {
     this.#options = resolveClientOptions(options);
@@ -134,6 +137,15 @@ export class Client {
   /** The logged-in user, once the connection reported it. */
   get me(): User | null {
     return this.#entities.me;
+  }
+
+  /**
+   * Whether `id` is this client's own account — under either addressing
+   * scheme. In LID-addressed groups the bot's own actions arrive with the
+   * linked id, so comparing against `me.id` alone is not enough.
+   */
+  isSelf(id: UserId): boolean {
+    return this.#entities.isSelf(id);
   }
 
   /** The active backend (for advanced integrations; normal bots never need it). */
@@ -201,6 +213,9 @@ export class Client {
     if (this.#login !== undefined) {
       return this.#login.promise;
     }
+    // Take over from a pending reconnect: its timer would otherwise start a
+    // second, overlapping connect after this one.
+    this.#cancelReconnectTimer();
 
     let resolveLogin!: () => void;
     let rejectLogin!: (error: Error) => void;
@@ -251,16 +266,17 @@ export class Client {
     }
     this.#state = "destroyed";
     this.#ready = false;
-    if (this.#reconnectTimer !== undefined) {
-      clearTimeout(this.#reconnectTimer);
-      this.#reconnectTimer = undefined;
-    }
+    this.#cancelReconnectTimer();
     this.#failLogin(new ConnectionError("Client was destroyed."), false);
     for (const unsubscribe of this.#backendListeners) {
       unsubscribe();
     }
     this.#backendListeners.length = 0;
     this.#subscribed = false;
+    // Cached identities describe the account that was connected; drop them so
+    // a destroy() cannot leak them into whatever reuses this process.
+    this.#entities.reset();
+    this.groups.reset();
     try {
       await this.#backend.disconnect();
     } catch (error) {
@@ -274,26 +290,37 @@ export class Client {
    * `login()` starts a fresh pairing flow.
    */
   async logout(): Promise<void> {
-    if (this.#reconnectTimer !== undefined) {
-      clearTimeout(this.#reconnectTimer);
-      this.#reconnectTimer = undefined;
-    }
-    if (this.#backend.logout) {
-      try {
-        await this.#backend.logout();
-      } catch (error) {
-        this.#handleError(error, "backend logout");
-      }
-    }
-    await this.#sessionStore.clear(this.#options.sessionId);
+    // Block reconnects from arming while the session is being wiped, and fail
+    // any in-flight login(): its deferred may otherwise never settle (the
+    // backend suppresses events during teardown).
+    this.#loggingOut = true;
     try {
-      await this.#backend.disconnect();
-    } catch (error) {
-      this.#handleError(error, "disconnect after logout");
-    }
-    this.#ready = false;
-    if (this.#state !== "destroyed") {
-      this.#state = "idle";
+      this.#cancelReconnectTimer();
+      this.#failLogin(new ConnectionError("Client logged out before login completed."), false);
+      if (this.#backend.logout) {
+        try {
+          await this.#backend.logout();
+        } catch (error) {
+          this.#handleError(error, "backend logout");
+        }
+      }
+      await this.#sessionStore.clear(this.#options.sessionId);
+      try {
+        await this.#backend.disconnect();
+      } catch (error) {
+        this.#handleError(error, "disconnect after logout");
+      }
+      this.#ready = false;
+      if (this.#state !== "destroyed") {
+        this.#state = "idle";
+      }
+      // A `login()` after this point is a *different* account: the previous
+      // account's chats, members, push names and group TTLs must not answer
+      // for them.
+      this.#entities.reset();
+      this.groups.reset();
+    } finally {
+      this.#loggingOut = false;
     }
   }
 
@@ -309,9 +336,9 @@ export class Client {
       );
     }
     if (!this.#backend.requestPairingCode) {
-      throw new ValidationError(`Backend "${this.#backend.id}" does not support pairing codes.`, {
-        code: "ERR_UNSUPPORTED",
-      });
+      throw new UnsupportedOperationError(
+        `Backend "${this.#backend.id}" does not support pairing codes.`,
+      );
     }
     try {
       return await this.#backend.requestPairingCode(phoneNumber);
@@ -350,18 +377,41 @@ export class Client {
         void this.#dispatchGroup(event.groupId, () => this.#factory.fromGroupParticipants(event));
       }),
       this.#backend.on("groupUpdate", (event) => {
-        void this.#dispatchGroup(event.groupId, () => this.#factory.fromGroupUpdate(event));
+        // Diff against the cache *before* any refresh: a snapshot whose fields
+        // all match what the bot already knows is not a change, and the
+        // refresh inside #dispatchGroup could otherwise fetch the
+        // post-change values and mask the very change being reported.
+        const changes = this.#entities.diffGroupChanges(event.groupId, event.changes);
+        if (Object.keys(changes).length === 0) return;
+        void this.#dispatchGroup(event.groupId, () =>
+          this.#factory.fromGroupUpdate({ ...event, changes }),
+        );
       }),
     );
   }
 
   async #connectBackend(): Promise<void> {
-    await this.#backend.connect({
-      sessionId: this.#options.sessionId,
-      sessionStore: this.#sessionStore,
-      logger: this.#logger,
-      pairingPhoneNumber: this.#options.pairingPhoneNumber,
-    });
+    // One connect at a time: login() called during a pending reconnect (or a
+    // reconnect timer firing while a connect is in flight) must not start an
+    // overlapping connect.
+    this.#connecting ??= this.#backend
+      .connect({
+        sessionId: this.#options.sessionId,
+        sessionStore: this.#sessionStore,
+        logger: this.#logger,
+        pairingPhoneNumber: this.#options.pairingPhoneNumber,
+      })
+      .finally(() => {
+        this.#connecting = undefined;
+      });
+    await this.#connecting;
+  }
+
+  #cancelReconnectTimer(): void {
+    if (this.#reconnectTimer !== undefined) {
+      clearTimeout(this.#reconnectTimer);
+      this.#reconnectTimer = undefined;
+    }
   }
 
   async #dispatch(interaction: Interaction): Promise<void> {
@@ -377,13 +427,7 @@ export class Client {
             }
           }
         }
-        for (const listener of this.#events.listenersOf("interactionCreate")) {
-          try {
-            await listener(interaction);
-          } catch (error) {
-            this.#handleError(error, "interactionCreate listener");
-          }
-        }
+        await this.#events.emitAsync("interactionCreate", interaction);
       });
     } catch (error) {
       this.#handleError(error, "middleware");
@@ -400,7 +444,7 @@ export class Client {
    */
   async #dispatchGroup(groupId: ChatId, create: () => Interaction): Promise<void> {
     await this.#ensureGroupMetadata(groupId);
-    await this.#dispatch(create());
+    await this.#buildAndDispatch(create);
   }
 
   /**
@@ -415,6 +459,16 @@ export class Client {
     if (kind === "group") {
       await this.#ensureGroupMetadata(chatId);
     }
+    await this.#buildAndDispatch(create);
+  }
+
+  /**
+   * Builds the interaction and dispatches it. Construction failures are
+   * reported through the `error` event instead of escaping as an unhandled
+   * rejection — group and message dispatch both go through here, so a
+   * malformed backend payload can never crash the process.
+   */
+  async #buildAndDispatch(create: () => Interaction): Promise<void> {
     let interaction: Interaction;
     try {
       interaction = create();
@@ -476,7 +530,9 @@ export class Client {
   }
 
   #onClose(update: BackendConnectionUpdate): void {
-    if (this.#state === "destroyed") {
+    if (this.#state === "destroyed" || this.#loggingOut) {
+      // Teardown in progress: a close event here is part of logout/destroy,
+      // not a reason to reconnect (the session is being wiped).
       return;
     }
     const reason = update.reason ?? DisconnectReason.Unknown;
@@ -498,9 +554,10 @@ export class Client {
       );
       this.#state = "connecting";
       this.#events.emit("reconnecting", attempt, delay);
+      this.#cancelReconnectTimer();
       this.#reconnectTimer = setTimeout(() => {
         this.#reconnectTimer = undefined;
-        if (this.#state === "destroyed") {
+        if (this.#state === "destroyed" || this.#loggingOut) {
           return;
         }
         this.#state = "connecting";
