@@ -78,6 +78,8 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 **Consequence.** `catch (e) { if (e instanceof NotFoundError) … }` is stable across providers; error events are safe to leave unguarded.
 
+**Silent by default.** With no `error` listener and the default no-op logger, a routed failure produces no output at all — deliberate, so the library never writes to the host's stdio. Applications opt in with `client.on("error", …)` (and/or a real logger); until then "routed to the `error` event" means "not thrown at you", not "reported somewhere".
+
 ## 11. Entities cache identity, users don't
 
 **Decision.** `EntityFactory` caches chats/groups (and group metadata) by id so `interaction.chat === interaction.message.chat` and group state accumulates; `User` is a value object recreated per event.

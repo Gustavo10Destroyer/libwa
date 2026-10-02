@@ -29,7 +29,7 @@ await client.login();
 
 ## Requirements
 
-- Node.js ≥ 18.17 (ESM package)
+- Node.js ≥ 20.0.0 (ESM package; the bundled Baileys provider requires ≥ 20)
 
 ```sh
 npm install libwa
@@ -124,7 +124,7 @@ client.commands.parse("!ping a b", ["!"]); // { name: "ping", args: ["a", "b"], 
 
 - Default prefix: `"!"` (`commands: { prefix: [...] }`, or `commands: false` to disable parsing).
 - `groupOnly` / `dmOnly` are enforced during dispatch; skipped commands still emit `interactionCreate`.
-- Thrown command errors surface on the client's `error` event.
+- Thrown command errors surface on the client's `error` event — which reports nothing until you subscribe to it (see [Events](#events)).
 
 ## Middleware
 
@@ -150,6 +150,12 @@ Middlewares run in registration order before commands/listeners. Throwing aborts
 | `pairingCode` | `(code)` | pairing code available |
 
 Reconnection is client-owned: exponential backoff (`reconnect: { attempts, initialDelayMs, maxDelayMs, factor }`), disabled with `reconnect: false`. Fatal reasons (`LoggedOut`, `BadSession`, `ConnectionReplaced`, `Forbidden`) are never retried.
+
+**Nothing is logged by default.** The default logger is a no-op and an event with no listener is simply dropped, so failures routed to `error` (and `qr` / `pairingCode`) stay invisible until you attach a handler:
+
+```ts
+client.on("error", (error) => console.error("libwa:", error));
+```
 
 ## Errors
 
@@ -198,7 +204,7 @@ See `docs/architecture.md` for the contract and `examples/` for runnable pattern
 
 ```sh
 npm run typecheck    # tsc --noEmit (src + tests + examples)
-npm test             # vitest (241 tests)
+npm test             # vitest (324 tests)
 npm run lint         # biome check
 npm run build        # tsc -p tsconfig.build.json → dist/
 npm run check:exports  # public API surface must not leak the provider
@@ -209,7 +215,7 @@ npm run verify       # all of the above
 
 - [`docs/architecture.md`](docs/architecture.md) — layers, event pipeline, backend contract, session model
 - [`docs/design-decisions.md`](docs/design-decisions.md) — why the library is shaped the way it is
-- [`examples/`](examples) — basic bot, pairing login, middleware/filters
+- [`examples/`](https://github.com/Gustavo10Destroyer/libwa/tree/main/examples) — basic bot, pairing login, middleware/filters
 
 ## License
 

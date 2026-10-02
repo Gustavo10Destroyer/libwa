@@ -55,6 +55,8 @@ Value objects built by `EntityFactory`:
 
 `Interaction` (abstract) carries `id`, `timestamp`, `chat`, `author`, `member` (the author's `GroupMember` in `group`, when applicable), `isFromMe` plus `reply()` and the guard family. Concrete subclasses add event-specific data (`CommandInteraction.args`, `ReactionInteraction.emoji`, …). The discriminator (`InteractionType`) and class hierarchy are kept in sync: `CommandInteraction extends MessageInteraction`, so `isMessage()` is true for commands too.
 
+`GroupUpdateInteraction.changes` is a **diff**, not a snapshot: only fields the provider actually changed are present, so `"name" in changes` is the reliable "did this change?" test. A cleared group description is a present `description` key with an `undefined` value — `"description" in changes` is true and `changes.description === undefined` means "cleared", not "unknown".
+
 ## Event pipeline
 
 ```
@@ -129,14 +131,14 @@ Session { id, provider, data: Uint8Array, updatedAt }
 
 ## Error model
 
-`WhatsAppError` (`.code`, optional `.cause`) → the seven subclasses. Rules:
+`WhatsAppError` (`.code`, optional `.cause`) → the eight subclasses. Rules:
 
 - Services wrap unknown provider failures with `rethrowAsBackendError` (`WhatsAppError`s pass through untouched).
-- Listener/command/middleware failures are routed to the `error` event — dispatch continues, the process never crashes.
+- Listener/command/middleware failures are routed to the `error` event — dispatch continues, the process never crashes. Nothing is logged unless you supply a logger **and** attach an `error` listener; both default to silent.
 - An `error` listener that itself throws is logged, never re-emitted (no recursion).
 
 ## Public surface discipline
 
-- `src/index.ts` is the entire public API; package `exports` exposes only `.` (plus `./package.json`), so deep imports into `dist/` are impossible.
+- `src/index.ts` is the entire public API; package `exports` exposes only `.` (plus `./package.json`), so deep imports into `dist/` are **not part of the supported API** — exports-aware resolvers reject them outright, while legacy `moduleResolution: "node"` can still reach `dist/` on disk. Nothing below the barrel is stable.
 - `npm run check:exports` builds a reachability graph from `dist/index.d.ts` and fails if any reachable declaration mentions the provider (`@whiskeysockets/baileys`, `WAMessage`, `WASocket`, `proto.`, …). Unreachable internal `.d.ts` files may reference provider types; consumers can never see them.
 - Tests import from `src/…` paths (never from the barrel for internals) and use a `MockBackend` for everything provider-free; Baileys behavior is unit-tested at the mapper/auth/disconnect level with realistic provider fixtures.
