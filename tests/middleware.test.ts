@@ -72,4 +72,59 @@ describe("runMiddlewareChain", () => {
     await runMiddlewareChain(middlewares, marker, async () => undefined);
     expect(seen).toEqual([marker]);
   });
+
+  it("adopts a next() the middleware never touched", async () => {
+    const middlewares: Middleware[] = [
+      (_interaction, next) => {
+        void next();
+      },
+    ];
+
+    await expect(
+      runMiddlewareChain(middlewares, interaction, async () => {
+        throw new Error("dispatch boom");
+      }),
+    ).rejects.toThrow("dispatch boom");
+  });
+
+  it("waits for a detached next() before resolving", async () => {
+    let finished = false;
+    const middlewares: Middleware[] = [
+      (_interaction, next) => {
+        void next();
+      },
+    ];
+
+    await runMiddlewareChain(middlewares, interaction, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      finished = true;
+    });
+
+    expect(finished).toBe(true);
+  });
+
+  it("lets a middleware that handled next()'s rejection swallow it", async () => {
+    const middlewares: Middleware[] = [
+      (_interaction, next) => {
+        void next().catch(() => undefined);
+      },
+    ];
+
+    await runMiddlewareChain(middlewares, interaction, async () => {
+      throw new Error("dispatch boom");
+    });
+  });
+
+  it("surfaces a detached next() called twice", async () => {
+    const middlewares: Middleware[] = [
+      (_interaction, next) => {
+        void next();
+        void next();
+      },
+    ];
+
+    await expect(
+      runMiddlewareChain(middlewares, interaction, async () => undefined),
+    ).rejects.toThrow("next() called multiple times");
+  });
 });
