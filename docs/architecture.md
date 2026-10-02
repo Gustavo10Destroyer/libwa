@@ -38,7 +38,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 | --- | --- |
 | `MessageService` (`client.messages`) | Validates/normalizes `ReplyContent`, resolves send targets, delegates to the backend, converts confirmations back into domain `Message`s. React/edit/delete with capability checks. |
 | `GroupService` (`client.groups`) | Metadata reads — `fetch` always round-trips, `ensure` serves a ≤60s cache (fetch-on-miss, deduped, backs off after failures) — plus member/setting operations, keeping cached group metadata in sync. |
-| `CommandRegistry` (`client.commands`) | Registration/aliases/uniqueness + prefix parsing. Data only; execution happens in the dispatch pipeline. |
+| `CommandRegistry` (`client.commands`) | Registration — whole-definition validation before any mutation (name/alias charset `^[a-z0-9][a-z0-9_-]{0,31}$`, duplicates, alias conflicts) — plus longest-prefix parsing with first-wins ties. Data only; execution happens in the dispatch pipeline. |
 | `UserService` (`client.users`) | Phone number ↔ linked id (`@lid`) resolution (recorded id pairs answer instantly, `getPhoneNumberForLid`/`getLidForPhoneNumber` fill the gaps), `fetch(id)` — existence check with name under either id scheme, resolved to phone digits — and profile enrichment: `pictureUrl(id, type?)`, `about(id)` and `accountType(id)`, each behind its own optional capability. |
 
 ### Entities
@@ -46,7 +46,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 Value objects built by `EntityFactory`:
 
 - `Chat` / `Group` (one file, `Group extends Chat`; `isGroup()` is a narrowing guard), `User`, `Message`.
-- Chats and group metadata are **cached by id** so identity is stable across events (`interaction.message.chat === interaction.chat`); users are cheap and recreated.
+- Chats and group metadata are **cached by id** in bounded LRU maps (512 chats, 512 group-metadata records, 4096 recorded id pairs, 4096 remembered names — pairs and names evict symmetrically) so identity is stable across events while an entry is still cached; an evicted entry is rebuilt as a fresh instance. A chat created from a bare id is upgraded to a `Group` only when real group metadata arrives. Users are cheap and recreated.
 - **Display names are remembered.** Every push name (and provider-supplied lookup name) is stored under both id schemes, so later id-only payloads — mentions, reactions, group members, fetch results — still carry `user.name`.
 - **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role }`) and `Group.member(id | user)` looks one account up across both id schemes — roles never leak onto the account-level `User`. Membership events (`applyGroupParticipants`) and metadata diffs (`applyGroupChanges`) patch the cached metadata in place, so a participant list stays current without a refetch.
 - Entities expose intent-level actions (`chat.send`, `message.react`, `group.addMembers`) that delegate back to services — never to a provider.
@@ -89,6 +89,7 @@ Key properties:
 `WhatsAppBackend` (`src/backend/Backend.ts`) = mandatory lifecycle + I/O:
 
 ```ts
+readonly id: string
 connect(options) · disconnect() · isConnected()
 sendMessage(request) · downloadMedia(request) · getGroupMetadata(chatId)
 on(event, listener) → Unsubscribe
@@ -104,7 +105,7 @@ Normalized events (`BackendEventMap`) use domain types exclusively (`ChatId`, `M
 
 | File | Role |
 | --- | --- |
-| `BaileysBackend.ts` | Socket lifecycle, event wiring, send/react/edit/delete/group ops, pairing, profile enrichment (picture/about/business), raw-message LRU cache, provider-content conversion. Module-private class exposed via `createBaileysBackend()`. |
+| `BaileysBackend.ts` | Socket lifecycle, event wiring, send/react/edit/delete/group ops, pairing, profile enrichment (picture/about/business), raw-message LRU cache, a 512-entry provider group-metadata `LruMap` feeding Baileys' `cachedGroupMetadata` hook, provider-content conversion. Module-private class exposed via `createBaileysBackend()`. |
 | `BaileysMapper.ts` | Pure functions: `mapIncomingMessage`, `mapMessageUpdates`, `mapMessagesDelete`, `mapReaction`, `mapGroupParticipants`, `mapGroupUpdates`, `mapGroupMetadata`. |
 | `BaileysAuth.ts` | `AuthenticationState` backed by a `SessionStore`; coalesced write chain; `BufferJSON` serialization; app-state key revival. |
 | `BaileysDisconnect.ts` | Boom/status-code → `DisconnectReason` mapping (incl. network errnos). |
@@ -127,14 +128,14 @@ Session { id, provider, data: Uint8Array, updatedAt }
 
 - Backend emits `connection: close` with a mapped `DisconnectReason` (+ detail string).
 - Client decides: fatal reasons (`LoggedOut`, `BadSession`, `ConnectionReplaced`, `Forbidden`) and exhausted attempts → `disconnect` event (+ `error` when retries were configured); otherwise exponential backoff and a fresh `connect()` call on the same backend instance.
-- `destroy()` is terminal (listeners detached, timer cancelled, `login()` rejected); `logout()` clears the session slot for a clean re-pairing.
+- `destroy()` is terminal (listeners detached, timer cancelled, `login()` rejected); `logout()` clears the session slot for a clean re-pairing. Both also reset the entity and group caches, so the next account to log in on this process starts from empty identity state.
 
 ## Error model
 
 `WhatsAppError` (`.code`, optional `.cause`) → the eight subclasses. Rules:
 
 - Services wrap unknown provider failures with `rethrowAsBackendError` (`WhatsAppError`s pass through untouched).
-- Listener/command/middleware failures are routed to the `error` event — dispatch continues, the process never crashes. Nothing is logged unless you supply a logger **and** attach an `error` listener; both default to silent.
+- Listener/command/middleware failures are routed to the `error` event — dispatch continues, the process never crashes. Nothing is logged unless you supply a logger; the `error` event is only emitted when at least one listener is attached. With neither configured a routed failure produces no output at all — both default to silent.
 - An `error` listener that itself throws is logged, never re-emitted (no recursion).
 
 ## Public surface discipline

@@ -17,7 +17,8 @@ client.on("pairingCode", (code) => {
 });
 
 client.on("qr", (qr) => {
-  // Only emitted when no pairing phone number is configured.
+  // Emitted whenever the provider supplies a QR payload — including while a
+  // pairing-code flow is already in progress.
   console.log("QR payload:", qr);
 });
 

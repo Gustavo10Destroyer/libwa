@@ -80,7 +80,7 @@ await client.login();
 
 ## Interactions
 
-Every backend event is normalized into an `Interaction`. Narrow with guards:
+Every message-family backend event (`message`, `messageUpdate`, `reaction`, `groupParticipants`, `groupUpdate`) is normalized into an `Interaction`; `connection` updates become the lifecycle events (`ready`, `qr`, `pairingCode`, `reconnecting`, `disconnect`). Narrow with guards:
 
 | Guard | Interaction | Highlights |
 | --- | --- | --- |
@@ -123,6 +123,8 @@ client.commands.parse("!ping a b", ["!"]); // { name: "ping", args: ["a", "b"], 
 ```
 
 - Default prefix: `"!"` (`commands: { prefix: [...] }`, or `commands: false` to disable parsing).
+- Prefix matching is **longest-wins**: with `["!", "!!"]`, `!!help` parses as the `!!` command (ties keep the earlier entry).
+- `register()` validates the whole definition first — name and alias charset `^[a-z0-9][a-z0-9_-]{0,31}$`, no duplicates, no alias that collides with a live command or another alias — and only then mutates the registry, so a rejected registration leaves it exactly as it was.
 - `groupOnly` / `dmOnly` are enforced during dispatch; skipped commands still emit `interactionCreate`.
 - Thrown command errors surface on the client's `error` event — which reports nothing until you subscribe to it (see [Events](#events)).
 
@@ -173,7 +175,7 @@ import { Client, FileSessionStore, MemorySessionStore } from "libwa";
 new Client({ sessionStore: new FileSessionStore({ directory: ".libwa" }), sessionId: "work" });
 ```
 
-Sessions are `{ id, provider, data: Uint8Array, updatedAt }` — opaque to everything but the owning backend. Multi-account bots use distinct `sessionId`s on a shared store. `client.logout()` invalidates the provider session and clears the slot.
+Sessions are `{ id, provider, data: Uint8Array, updatedAt }` — opaque to everything but the owning backend. Multi-account bots use distinct `sessionId`s on a shared store. `client.logout()` invalidates the provider session and clears the slot; both `logout()` and `destroy()` also reset the entity and group caches, so a re-login — or a second account sharing the store in the same process — can never answer from the previous session's identity data.
 
 ## Custom backends
 
@@ -203,12 +205,16 @@ See `docs/architecture.md` for the contract and `examples/` for runnable pattern
 ## Development
 
 ```sh
-npm run typecheck    # tsc --noEmit (src + tests + examples)
-npm test             # vitest (324 tests)
-npm run lint         # biome check
-npm run build        # tsc -p tsconfig.build.json → dist/
-npm run check:exports  # public API surface must not leak the provider
-npm run verify       # all of the above
+npm run typecheck     # tsc --noEmit (src + tests + examples)
+npm test              # vitest (324 tests)
+npm run test:watch    # vitest in watch mode
+npm run test:coverage # vitest run --coverage
+npm run lint          # biome check
+npm run lint:fix      # biome check --write .
+npm run format        # biome format --write .
+npm run build         # node scripts/clean-dist.mjs && tsc -p tsconfig.build.json → dist/
+npm run check:exports # public API surface must not leak the provider
+npm run verify        # typecheck → test → lint → build → check:exports
 ```
 
 ## Documentation

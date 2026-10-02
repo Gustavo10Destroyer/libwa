@@ -68,7 +68,7 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 **Context.** `EventEmitter` is untyped; interfaces lack index signatures (so `Record<string, …>` constraints reject `ClientEvents`).
 
-**Decision.** `TypedEventEmitter<Map>` with `EventMapConstraint<Map> = Record<keyof Map, readonly unknown[]>`, listeners typed `(...args: Map[Key]) => void | Promise<void>`, async listener failures routed to an `onListenerError` hook. `listenersOf()` powers ordered pipeline dispatch.
+**Decision.** `TypedEventEmitter<Map>` with `EventMapConstraint<Map> = Record<keyof Map, readonly unknown[]>`, listeners typed `(...args: Map[Key]) => void | Promise<void>`, async listener failures routed to an `onListenerError` hook. `emitAsync()` walks one ordered entry list per event in strict registration order; `listenersOf()` exposes a read-only snapshot.
 
 **Consequence.** `client.on("reconnecting", (attempt, delayMs) => …)` infers everything; a throwing listener degrades to an `error` event, never a crash.
 
@@ -82,9 +82,9 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 ## 11. Entities cache identity, users don't
 
-**Decision.** `EntityFactory` caches chats/groups (and group metadata) by id so `interaction.chat === interaction.message.chat` and group state accumulates; `User` is a value object recreated per event.
+**Decision.** `EntityFactory` caches chats/groups (and group metadata) by id so `interaction.chat === interaction.message.chat` and group state accumulates; `User` is a value object recreated per event. The caches are bounded LRU maps (512 chats, 512 group-metadata records, 4096 recorded id pairs, 4096 remembered names) with symmetric eviction, and a chat created from a bare id is upgraded to a `Group` only when real group metadata arrives.
 
-**Consequence.** Stable references for UI/identity comparisons without a global identity map that never evicts.
+**Consequence.** Stable references for UI/identity comparisons without an identity map that grows forever — memory stays flat, at the price of an evicted entry answering with a fresh instance on its next lookup.
 
 ## 12. Dispatch order: middleware → command → listeners
 
@@ -106,7 +106,7 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 ## 15. Leaks are a build failure
 
-**Decision.** Baileys may be imported only under `src/backend/baileys/`; `npm run check:exports` walks the reachable graph of `dist/index.d.ts` and fails the build on provider tokens (module specifiers anywhere, type names on export lines). Package `exports` exposes only the root entry.
+**Decision.** Baileys may be imported only under `src/backend/baileys/`; `npm run check:exports` walks the reachable graph of `dist/index.d.ts` and fails the build on provider tokens (module specifiers anywhere, type names on export lines). Package `exports` exposes only the root entry and `./package.json`.
 
 **Consequence.** "No provider types in the public API" is enforced mechanically, not by review.
 

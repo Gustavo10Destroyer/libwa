@@ -19,7 +19,10 @@ export type ClientEvents = {
   disconnect: [reason: DisconnectReason];
   /** A reconnection attempt has been scheduled. */
   reconnecting: [attempt: number, delayMs: number];
-  /** A QR code is available for scanning (pairing-code login is not configured). */
+  /**
+   * A QR code is available for scanning. Emitted whenever the provider supplies
+   * one — including while a pairing-code flow is already in progress.
+   */
   qr: [qr: string];
   /** A pairing code is available for phone-number login. */
   pairingCode: [code: string];
