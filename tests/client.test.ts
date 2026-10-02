@@ -5,6 +5,7 @@ import { MemorySessionStore } from "../src/auth/MemorySessionStore.js";
 import type { Session } from "../src/auth/SessionStore.js";
 import { DisconnectReason } from "../src/core/DisconnectReason.js";
 import { ConnectionError, ValidationError } from "../src/errors/index.js";
+import { GROUP_METADATA_TTL_MS } from "../src/groups/GroupService.js";
 import type { Interaction } from "../src/interactions/Interaction.js";
 import { CapableMockBackend, MockBackend } from "./helpers/MockBackend.js";
 import {
@@ -232,7 +233,7 @@ describe("Client interaction dispatch", () => {
     expect(received[1]?.isGroupUpdate()).toBe(true);
   });
 
-  it("refreshes group metadata before dispatching group interactions", async () => {
+  it("fetches group metadata once for a burst of group interactions", async () => {
     const received: Interaction[] = [];
     client.on("interactionCreate", (interaction) => {
       received.push(interaction);
@@ -242,7 +243,8 @@ describe("Client interaction dispatch", () => {
     backend.emit("groupUpdate", groupUpdateEvent());
     await vi.waitFor(() => expect(received).toHaveLength(2));
 
-    expect(backend.metadataCalls).toEqual(["123456789@g.us", "123456789@g.us"]);
+    // Both events shared one fetch, and their changes landed in the cache.
+    expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
     const participants = received[0];
     if (participants === undefined || !participants.isGroupParticipantUpdate()) {
       throw new Error("expected a group participant interaction");
@@ -257,6 +259,141 @@ describe("Client interaction dispatch", () => {
     }
     expect(update.group.metadata?.participants).toHaveLength(2);
     expect(update.group.name).toBe("Renamed Group");
+
+    // Another event inside the TTL is served from the cache entirely.
+    backend.emit("groupUpdate", groupUpdateEvent({ id: "group-update-2" }));
+    await vi.waitFor(() => expect(received).toHaveLength(3));
+    expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
+    expect(received[2]?.group?.name).toBe("Renamed Group");
+  });
+
+  it("keeps membership current from participant events without refetching", async () => {
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+
+    backend.emit(
+      "message",
+      messageEvent({ chatId: "123456789@g.us", chatKind: "group", authorId: "111@s.whatsapp.net" }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    backend.emit(
+      "groupParticipants",
+      groupParticipantsEvent({ id: "ge-add", participantIds: ["333@s.whatsapp.net"] }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    const added = received[1];
+    expect(added?.group?.memberCount).toBe(3);
+    expect(added?.group?.member("333@s.whatsapp.net")?.role).toBe("member");
+
+    backend.emit(
+      "groupParticipants",
+      groupParticipantsEvent({
+        id: "ge-promote",
+        action: "promote",
+        participantIds: ["333@s.whatsapp.net"],
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(3));
+    expect(received[2]?.group?.member("333@s.whatsapp.net")?.role).toBe("admin");
+
+    backend.emit(
+      "groupParticipants",
+      groupParticipantsEvent({
+        id: "ge-remove",
+        action: "remove",
+        participantIds: ["333@s.whatsapp.net"],
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(4));
+    expect(received[3]?.group?.memberCount).toBe(2);
+    expect(received[3]?.group?.member("333@s.whatsapp.net")).toBeUndefined();
+
+    // The cache was patched locally every time — one fetch in total.
+    expect(backend.metadataCalls).toHaveLength(1);
+  });
+
+  it("refetches group metadata once the TTL expired", async () => {
+    const received: Interaction[] = [];
+    client.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+
+    backend.emit(
+      "message",
+      messageEvent({ chatId: "123456789@g.us", chatKind: "group", authorId: "111@s.whatsapp.net" }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS - 1_000);
+    backend.emit(
+      "message",
+      messageEvent({
+        id: "msg-2",
+        chatId: "123456789@g.us",
+        chatKind: "group",
+        authorId: "111@s.whatsapp.net",
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS);
+    backend.emit(
+      "message",
+      messageEvent({
+        id: "msg-3",
+        chatId: "123456789@g.us",
+        chatKind: "group",
+        authorId: "111@s.whatsapp.net",
+      }),
+    );
+    await vi.waitFor(() => expect(received).toHaveLength(3));
+    expect(backend.metadataCalls).toHaveLength(2);
+  });
+
+  it("serves stale metadata when a refresh fails and backs off retries", async () => {
+    const warns: unknown[][] = [];
+    const logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (...args: unknown[]) => {
+        warns.push(args);
+      },
+      error: () => {},
+    };
+    const backend2 = new CapableMockBackend();
+    const { client: staleClient } = createClient(backend2, { logger });
+    await login(staleClient, backend2);
+    await staleClient.groups.fetch("123456789@g.us");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + GROUP_METADATA_TTL_MS + 1_000);
+    backend2.metadataError = new Error("metadata unavailable");
+
+    const received: Interaction[] = [];
+    staleClient.on("interactionCreate", (interaction) => {
+      received.push(interaction);
+    });
+    backend2.emit("groupParticipants", groupParticipantsEvent());
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    // The failed refresh warned once and the stale snapshot answered instead.
+    expect(JSON.stringify(warns)).toContain("[group refresh]");
+    expect(received[0]?.group?.metadata?.participants).toHaveLength(2);
+    expect(received[0]?.group?.memberCount).toBe(2);
+    expect(backend2.metadataCalls).toHaveLength(2);
+
+    // A follow-up event inside the TTL does not hit the provider again.
+    backend2.emit("groupUpdate", groupUpdateEvent());
+    await vi.waitFor(() => expect(received).toHaveLength(2));
+    expect(backend2.metadataCalls).toHaveLength(2);
+    expect(received[1]?.group?.name).toBe("Renamed Group");
   });
 
   it("dispatches group interactions even when the metadata refresh fails", async () => {
@@ -304,6 +441,7 @@ describe("Client interaction dispatch", () => {
     await vi.waitFor(() => expect(received).toHaveLength(1));
     expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
     expect(received[0]?.member?.role).toBe("admin");
+    expect(received[0]?.member?.user).toBe(received[0]?.author);
 
     // The cached metadata answers the next messages without another fetch.
     backend.emit(
@@ -317,6 +455,7 @@ describe("Client interaction dispatch", () => {
     );
     await vi.waitFor(() => expect(received).toHaveLength(2));
     expect(received[1]?.member?.role).toBe("member");
+    expect(received[1]?.member?.user).toBe(received[1]?.author);
     expect(backend.metadataCalls).toHaveLength(1);
 
     // Reactions in the same group reuse the cached metadata too.

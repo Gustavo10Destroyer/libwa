@@ -9,7 +9,14 @@ import type {
 import type { MessageContent } from "../core/content.js";
 import type { ChatId, UserId } from "../core/ids.js";
 import { Chat, Group } from "./Chat.js";
-import type { ChatKind, GroupMetadata, GroupUpdateChanges } from "./Chat.js";
+import type {
+  ChatKind,
+  GroupMetadata,
+  GroupParticipant,
+  GroupParticipantAction,
+  GroupRole,
+  GroupUpdateChanges,
+} from "./Chat.js";
 import { Message, type MessageReference } from "./Message.js";
 import { User, phoneFromId } from "./User.js";
 
@@ -222,6 +229,89 @@ export class EntityFactory {
     } else if (changes.name !== undefined) {
       group.updateName(changes.name);
     }
+    return group;
+  }
+
+  /**
+   * Applies a membership change (add/remove/promote/demote) to cached group
+   * metadata, so participant events keep the cache current without a
+   * provider round-trip.
+   *
+   * Matching respects recorded LID ↔ phone-number id pairs, adds are
+   * idempotent (an id already present is left alone), and added participants
+   * start as plain members — a later `promote` event upgrades them. Actions
+   * that cannot be mapped (`"other"`) and groups without cached metadata
+   * leave everything untouched; the next `groups.ensure()` past the TTL
+   * picks the state up from the provider instead.
+   */
+  applyGroupParticipants(
+    groupId: ChatId,
+    action: GroupParticipantAction,
+    participantIds: readonly UserId[],
+  ): Group {
+    const group = this.group(groupId);
+    const known = this.#groupMetadata.get(groupId);
+    if (known === undefined || participantIds.length === 0) {
+      return group;
+    }
+    /** Whether a participant record is the account `id`, under either addressing scheme. */
+    const sameAccount = (participant: GroupParticipant, id: UserId): boolean => {
+      const alt = this.altIdFor(id);
+      return (
+        participant.id === id ||
+        (alt !== undefined && participant.id === alt) ||
+        participant.altId === id ||
+        (participant.altId !== undefined && alt !== undefined && participant.altId === alt)
+      );
+    };
+    const isTarget = (participant: GroupParticipant): boolean =>
+      participantIds.some((id) => sameAccount(participant, id));
+    let promoteTo: GroupRole | undefined;
+    if (action === "promote") promoteTo = "admin";
+    else if (action === "demote") promoteTo = "member";
+
+    let participants: readonly GroupParticipant[];
+    if (action === "add") {
+      const missing = participantIds.filter(
+        (id) => !known.participants.some((participant) => sameAccount(participant, id)),
+      );
+      if (missing.length === 0) {
+        return group;
+      }
+      const added: GroupParticipant[] = missing.map((id) => ({
+        id,
+        altId: this.altIdFor(id),
+        role: "member",
+        name: undefined,
+      }));
+      participants = [...known.participants, ...added];
+    } else if (action === "remove") {
+      const kept = known.participants.filter((participant) => !isTarget(participant));
+      if (kept.length === known.participants.length) {
+        return group;
+      }
+      participants = kept;
+    } else if (promoteTo !== undefined) {
+      let changed = false;
+      participants = known.participants.map((participant) => {
+        if (!isTarget(participant)) return participant;
+        const unchanged =
+          participant.role === promoteTo ||
+          (promoteTo === "admin" && participant.role === "superadmin");
+        if (unchanged) return participant;
+        changed = true;
+        return { ...participant, role: promoteTo };
+      });
+      if (!changed) {
+        return group;
+      }
+    } else {
+      return group;
+    }
+
+    const merged: GroupMetadata = { ...known, participants };
+    this.#groupMetadata.set(groupId, merged);
+    group.applyMetadata(merged);
     return group;
   }
 

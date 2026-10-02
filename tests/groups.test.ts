@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client } from "../src/Client.js";
 import { MemorySessionStore } from "../src/auth/MemorySessionStore.js";
 import { EntityFactory } from "../src/entities/EntityFactory.js";
 import { NotFoundError, ValidationError } from "../src/errors/index.js";
+import { GROUP_METADATA_TTL_MS } from "../src/groups/GroupService.js";
 import { CapableMockBackend, MockBackend, groupMetadataFixture } from "./helpers/MockBackend.js";
 
 const GROUP_ID = "123456789@g.us";
@@ -121,6 +122,80 @@ describe("GroupService", () => {
   });
 });
 
+describe("GroupService.ensure", () => {
+  let backend: CapableMockBackend;
+  let client: Client;
+
+  beforeEach(() => {
+    backend = new CapableMockBackend();
+    client = new Client({ backend, sessionStore: new MemorySessionStore() });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fetches on first use and answers later calls from the cache", async () => {
+    const first = await client.groups.ensure(GROUP_ID);
+    const second = await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toEqual([GROUP_ID]);
+    expect(second).toBe(first);
+    expect(second.metadata?.participants).toHaveLength(2);
+  });
+
+  it("shares one in-flight fetch between concurrent callers", async () => {
+    const [first, second] = await Promise.all([
+      client.groups.ensure(GROUP_ID),
+      client.groups.ensure(GROUP_ID),
+    ]);
+    expect(backend.metadataCalls).toEqual([GROUP_ID]);
+    expect(first).toBe(second);
+  });
+
+  it("refetches only once the TTL elapsed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+
+    await client.groups.ensure(GROUP_ID);
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS - 1_000);
+    await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS);
+    await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toHaveLength(2);
+  });
+
+  it("keeps explicit fetch cache-bypassing", async () => {
+    await client.groups.fetch(GROUP_ID);
+    await client.groups.fetch(GROUP_ID);
+    expect(backend.metadataCalls).toEqual([GROUP_ID, GROUP_ID]);
+
+    await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toHaveLength(2);
+  });
+
+  it("backs off after a failed attempt and retries once the TTL passes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    backend.metadataError = new Error("boom");
+
+    await expect(client.groups.ensure(GROUP_ID)).rejects.toMatchObject({ name: "BackendError" });
+    expect(backend.metadataCalls).toHaveLength(1);
+
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS - 1_000);
+    const stale = await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toHaveLength(1);
+    expect(stale.metadata).toBeUndefined();
+
+    vi.setSystemTime(start + GROUP_METADATA_TTL_MS);
+    backend.metadataError = undefined;
+    const fresh = await client.groups.ensure(GROUP_ID);
+    expect(backend.metadataCalls).toHaveLength(2);
+    expect(fresh.metadata).toBeDefined();
+  });
+});
+
 describe("Group member lookups", () => {
   let backend: CapableMockBackend;
   let client: Client;
@@ -136,6 +211,7 @@ describe("Group member lookups", () => {
     const byId = group.member("111@s.whatsapp.net");
     expect(byId?.role).toBe("admin");
     expect(byId?.user.id).toBe("111@s.whatsapp.net");
+    expect(byId?.user.name).toBe("Owner");
 
     const owner = byId?.user;
     expect(owner).toBeDefined();
@@ -169,6 +245,75 @@ describe("Group member lookups", () => {
     const group = entities.group(GROUP_ID);
     expect(group.member("111@s.whatsapp.net")).toBeUndefined();
     expect(group.members).toEqual([]);
+  });
+});
+
+describe("membership change application", () => {
+  let client: Client;
+
+  beforeEach(() => {
+    client = new Client({
+      backend: new CapableMockBackend(),
+      sessionStore: new MemorySessionStore(),
+    });
+  });
+
+  it("applies add, promote, demote and remove to cached metadata", () => {
+    const entities = new EntityFactory(client);
+    entities.applyGroupMetadata(groupMetadataFixture());
+    const group = entities.group(GROUP_ID);
+
+    entities.applyGroupParticipants(GROUP_ID, "add", ["333@s.whatsapp.net"]);
+    expect(group.memberCount).toBe(3);
+    expect(group.member("333@s.whatsapp.net")?.role).toBe("member");
+
+    entities.applyGroupParticipants(GROUP_ID, "promote", ["333@s.whatsapp.net"]);
+    expect(group.member("333@s.whatsapp.net")?.role).toBe("admin");
+
+    entities.applyGroupParticipants(GROUP_ID, "demote", ["333@s.whatsapp.net"]);
+    expect(group.member("333@s.whatsapp.net")?.role).toBe("member");
+
+    entities.applyGroupParticipants(GROUP_ID, "remove", ["333@s.whatsapp.net"]);
+    expect(group.memberCount).toBe(2);
+    expect(group.member("333@s.whatsapp.net")).toBeUndefined();
+  });
+
+  it("adds idempotently and matches participants across id schemes", () => {
+    const entities = new EntityFactory(client);
+    const LID = "987654321012345@lid";
+    const PN = "5511999999999@s.whatsapp.net";
+    entities.recordIdPairs([{ id: LID, altId: PN }]);
+    entities.applyGroupMetadata({
+      ...groupMetadataFixture(),
+      participants: [{ id: PN, role: "admin", name: "Owner" }],
+    });
+
+    // The same account addressed by its linked id is already a member.
+    entities.applyGroupParticipants(GROUP_ID, "add", [LID]);
+    expect(entities.groupMetadata(GROUP_ID)?.participants).toHaveLength(1);
+
+    entities.applyGroupParticipants(GROUP_ID, "remove", [LID]);
+    expect(entities.groupMetadata(GROUP_ID)?.participants).toHaveLength(0);
+    expect(entities.group(GROUP_ID).member(PN)).toBeUndefined();
+  });
+
+  it("keeps superadmins on promote and ignores unknown groups or actions", () => {
+    const entities = new EntityFactory(client);
+
+    // No cached metadata yet: nothing to patch, nothing created.
+    const unresolved = entities.applyGroupParticipants(GROUP_ID, "add", ["333@s.whatsapp.net"]);
+    expect(unresolved.metadata).toBeUndefined();
+    expect(entities.groupMetadata(GROUP_ID)).toBeUndefined();
+
+    entities.applyGroupMetadata({
+      ...groupMetadataFixture(),
+      participants: [{ id: "555@s.whatsapp.net", role: "superadmin", name: undefined }],
+    });
+    entities.applyGroupParticipants(GROUP_ID, "promote", ["555@s.whatsapp.net"]);
+    expect(entities.groupMetadata(GROUP_ID)?.participants[0]?.role).toBe("superadmin");
+
+    entities.applyGroupParticipants(GROUP_ID, "other", ["333@s.whatsapp.net"]);
+    expect(entities.groupMetadata(GROUP_ID)?.participants).toHaveLength(1);
   });
 });
 

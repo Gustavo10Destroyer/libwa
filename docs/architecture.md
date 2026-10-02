@@ -28,7 +28,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 
 - Resolves options (`ClientOptions` → defaults) and constructs services.
 - Subscribes to the six normalized backend events exactly once per instance.
-- Converts backend events into interactions (`InteractionFactory`) — refreshing group metadata first for participant/update events, and fetching it (once per group, cached afterwards) before message-family interactions in group chats — so interactions carry current members and `interaction.member` can answer with the author's role; runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
+- Converts backend events into interactions (`InteractionFactory`) — after making the group's metadata cache usable via `groups.ensure()` (fetched at most once per 60s per group; membership and metadata events are applied to the cache while building the interaction) — so interactions carry current members and `interaction.member` can answer with the author's role; runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
 - Owns **reconnection policy** (backoff, attempt counting, fatal-reason classification). Backends only report *why* a connection closed.
 - Owns **login bookkeeping**: `login()` returns a deferred promise resolved on first `ready`, rejected on fatal/auth failure or when retries are exhausted.
 
@@ -37,7 +37,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 | Service | Responsibility |
 | --- | --- |
 | `MessageService` (`client.messages`) | Validates/normalizes `ReplyContent`, resolves send targets, delegates to the backend, converts confirmations back into domain `Message`s. React/edit/delete with capability checks. |
-| `GroupService` (`client.groups`) | Metadata fetch + member/setting operations, keeping cached group metadata in sync. |
+| `GroupService` (`client.groups`) | Metadata reads — `fetch` always round-trips, `ensure` serves a ≤60s cache (fetch-on-miss, deduped, backs off after failures) — plus member/setting operations, keeping cached group metadata in sync. |
 | `CommandRegistry` (`client.commands`) | Registration/aliases/uniqueness + prefix parsing. Data only; execution happens in the dispatch pipeline. |
 | `UserService` (`client.users`) | Phone number ↔ linked id (`@lid`) resolution (recorded id pairs answer instantly, `getPhoneNumberForLid`/`getLidForPhoneNumber` fill the gaps), `fetch(id)` — existence check with name under either id scheme, resolved to phone digits — and profile enrichment: `pictureUrl(id, type?)`, `about(id)` and `accountType(id)`, each behind its own optional capability. |
 
@@ -48,7 +48,7 @@ Value objects built by `EntityFactory`:
 - `Chat` / `Group` (one file, `Group extends Chat`; `isGroup()` is a narrowing guard), `User`, `Message`.
 - Chats and group metadata are **cached by id** so identity is stable across events (`interaction.message.chat === interaction.chat`); users are cheap and recreated.
 - **Display names are remembered.** Every push name (and provider-supplied lookup name) is stored under both id schemes, so later id-only payloads — mentions, reactions, group members, fetch results — still carry `user.name`.
-- **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role }`) and `Group.member(id | user)` looks one account up across both id schemes — roles never leak onto the account-level `User`.
+- **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role }`) and `Group.member(id | user)` looks one account up across both id schemes — roles never leak onto the account-level `User`. Membership events (`applyGroupParticipants`) and metadata diffs (`applyGroupChanges`) patch the cached metadata in place, so a participant list stays current without a refetch.
 - Entities expose intent-level actions (`chat.send`, `message.react`, `group.addMembers`) that delegate back to services — never to a provider.
 
 ### Interactions

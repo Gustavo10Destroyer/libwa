@@ -137,13 +137,17 @@ export class InteractionFactory {
     });
   }
 
-  /** Creates a group participant change interaction. */
+  /** Creates a group participant change interaction, applying it to cached metadata. */
   fromGroupParticipants(event: BackendGroupParticipantsEvent): GroupParticipantInteraction {
     this.#entities.recordIdPairs(event.idPairs);
     const actor = event.actorId === undefined ? undefined : this.#entities.user(event.actorId);
     return new GroupParticipantInteraction(this.#client, {
       id: event.id,
-      group: this.#entities.group(event.groupId),
+      group: this.#entities.applyGroupParticipants(
+        event.groupId,
+        event.action,
+        event.participantIds,
+      ),
       action: event.action,
       users: event.participantIds.map((id) => this.#entities.user(id)),
       actor,

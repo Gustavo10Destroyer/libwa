@@ -120,7 +120,7 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 **Context.** A role (`admin`) only means something inside one group, while `User` is account-level and recreated per event — storing membership on it would be wrong and stale. Providers also do not deliver group member labels: Baileys' `extractGroupMetadata` maps participants to `{ id, phoneNumber, lid, username, admin }`, so a `tag` field could only ever be `undefined` in live use.
 
-**Decision.** `Group.members` yields `GroupMember { user, role }` and `Group.member(id | user)` resolves one account across both id schemes; every interaction computes `member` from `group` + `author` at construction. Group message-family interactions fetch metadata once per group before dispatch (participant/update events always refresh), so the answer is current without a refetch per message. A `tag` field shipped in 0.2.0 and was removed in 0.3.0 once the provider gap was confirmed — `GroupParticipant.name`/`username` stay as raw provider-reported metadata and still seed the member's remembered `user.name`.
+**Decision.** `Group.members` yields `GroupMember { user, role }` and `Group.member(id | user)` resolves one account across both id schemes; every interaction computes `member` from `group` + `author` at construction. Group dispatch resolves metadata through `groups.ensure()` (decision 19), so the answer is current without a refetch per message. A `tag` field shipped in 0.2.0 and was removed in 0.3.0 once the provider gap was confirmed — `GroupParticipant.name`/`username` stay as raw provider-reported metadata and still seed the member's remembered `user.name`.
 
 **Consequence.** `interaction.member?.role === "admin"` works everywhere in group chats; `User` stays a cheap value object. Breaking: `Group.members` returns `GroupMember[]` (0.2.0), and `GroupMember.tag` is gone (0.3.0).
 
@@ -131,3 +131,11 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 **Decision.** `client.users.pictureUrl(id, type?)`, `about(id)` and `accountType(id)` normalize ids like `fetch()` and delegate to optional caps (`getProfilePictureUrl`, `getAbout`, `getBusinessProfile`). Privacy-hidden pictures/about resolve `undefined`; provider failures become `BackendError`; missing caps become `UnsupportedOperationError`.
 
 **Consequence.** `User` stays offline-friendly (no eager profile I/O during dispatch); backends without the caps pay nothing.
+
+## 19. Group metadata: 60s cache, fetch-on-miss, events patch it
+
+**Context.** Dispatch used to refresh metadata before *every* participant/update event and fetch it once per group for messages — correct data, but a flaky provider plus a chatty group meant a request (and a warning) per event, while "fetch once ever" left metadata arbitrarily stale. Ban avoidance calls for a bounded round-trip rate.
+
+**Decision.** `GroupService.ensure()` serves metadata fetched within the last `GROUP_METADATA_TTL_MS` (60s), performs exactly one fetch when the window elapsed or nothing is cached (concurrent callers share the in-flight request), and after a failed attempt backs off for the whole window instead of retrying per event. `groups.fetch()` and `group.refresh()` always round-trip — explicit reads bypass the cache by design. The cache is kept current between fetches by the events themselves: `groupUpdate` diffs go through `EntityFactory.applyGroupChanges`, membership changes through `applyGroupParticipants` (idempotent adds, LID ↔ phone matching, `"other"` left for the next TTL fetch), both applied before the interaction is built.
+
+**Consequence.** At most one provider metadata round-trip per group per minute regardless of event volume; inside the window dispatch does no group I/O at all, and `[group refresh]` warnings fire only for real attempts that fail. Stale metadata (or none) answers in between, so handlers never block on the provider. Breaking-ish in 0.3.0: participant/update events no longer force a refetch.

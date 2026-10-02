@@ -21,7 +21,7 @@ export interface GroupParticipantInit {
 export class GroupParticipantInteraction extends Interaction {
   override readonly type = InteractionType.GroupParticipant;
 
-  /** The group the change happened in (fresh metadata, see `Client`). */
+  /** The group the change happened in (cached metadata, kept current by the event itself). */
   override readonly group: Group;
   /** What happened to the participants. */
   readonly action: GroupParticipantAction;

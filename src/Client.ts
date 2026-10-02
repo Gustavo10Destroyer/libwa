@@ -391,35 +391,29 @@ export class Client {
   }
 
   /**
-   * Refreshes the group's metadata, then builds and dispatches a group
-   * interaction, so `interaction.group` carries current members and metadata
-   * at dispatch time. A failed refresh is logged as a warning and the cached
-   * state is used instead — dispatch is never blocked or dropped by it.
+   * Ensures the group's metadata cache is usable (fetched within the last
+   * minute), then builds and dispatches a group interaction. Membership and
+   * metadata-change events are applied to the cached metadata while building
+   * it, so handlers see current members without a refetch per event. A failed
+   * refresh is logged as a warning and dispatch proceeds with whatever is
+   * cached — never blocked or dropped.
    */
   async #dispatchGroup(groupId: ChatId, create: () => Interaction): Promise<void> {
-    try {
-      await this.groups.fetch(groupId);
-    } catch (error) {
-      this.#logger.warn("[group refresh]", toError(error).message);
-    }
+    await this.#ensureGroupMetadata(groupId);
     await this.#dispatch(create());
   }
 
   /**
    * Builds and dispatches a message-family interaction (message, command,
-   * reaction, edit/delete). Group chats first ensure metadata is known —
-   * fetching it when nothing is cached yet, once per group — so
-   * `interaction.member` can answer with the author's role. A failed
-   * fetch logs a warning and dispatch proceeds without metadata, never
-   * blocked or dropped.
+   * reaction, edit/delete). Group chats first make the metadata cache usable
+   * — fetching it only when nothing was fetched for the last minute — so
+   * `interaction.member` can answer with the author's role. A failed fetch
+   * logs a warning and dispatch proceeds without metadata, never blocked or
+   * dropped.
    */
   async #dispatchChat(kind: ChatKind, chatId: ChatId, create: () => Interaction): Promise<void> {
-    if (kind === "group" && this.#entities.group(chatId).metadata === undefined) {
-      try {
-        await this.groups.fetch(chatId);
-      } catch (error) {
-        this.#logger.warn("[group refresh]", toError(error).message);
-      }
+    if (kind === "group") {
+      await this.#ensureGroupMetadata(chatId);
     }
     let interaction: Interaction;
     try {
@@ -429,6 +423,15 @@ export class Client {
       return;
     }
     await this.#dispatch(interaction);
+  }
+
+  /** Ensures cached group metadata is usable, warning (not throwing) when a refresh fails. */
+  async #ensureGroupMetadata(groupId: ChatId): Promise<void> {
+    try {
+      await this.groups.ensure(groupId);
+    } catch (error) {
+      this.#logger.warn("[group refresh]", toError(error).message);
+    }
   }
 
   #commandAllowed(command: CommandDefinition, interaction: Interaction): boolean {

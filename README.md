@@ -93,7 +93,7 @@ Every backend event is normalized into an `Interaction`. Narrow with guards:
 | `isButton()` | `ButtonInteraction` | `.buttonId`, `.title`, `.displayText`, `.variant` |
 | `isList()` | `ListInteraction` | `.rowId`, `.title`, `.description` |
 
-Every interaction carries `.chat`; when `isFromGroup()` is true it narrows so `.group` is typed `Group` (undefined for direct chats). Group interactions are dispatched with freshly fetched group metadata (once per group, cached afterwards), so `.group.members` is current — and every interaction exposes `.member`, the author's group-scoped `{ user, role }` (undefined outside groups or when metadata is unknown).
+Every interaction carries `.chat`; when `isFromGroup()` is true it narrows so `.group` is typed `Group` (undefined for direct chats). Group interactions are dispatched against cached group metadata — fetched at most once per minute per group (`client.groups.ensure()`), with membership and metadata events patched into the cache as they arrive — so `.group.members` is current; every interaction exposes `.member`, the author's group-scoped `{ user, role }` (undefined outside groups or when metadata could not be resolved).
 
 Content is a discriminated union (`content.kind`): `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `buttonReply`, `listReply`, `unknown` — plus `isText()` / `isImage()` / … guards that narrow `content` at compile time.
 
