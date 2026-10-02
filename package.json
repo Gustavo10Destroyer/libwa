@@ -1,6 +1,6 @@
 {
   "name": "libwa",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Interaction-driven WhatsApp bot library with a pluggable backend architecture (Baileys first).",
   "type": "module",
   "main": "./dist/index.js",
