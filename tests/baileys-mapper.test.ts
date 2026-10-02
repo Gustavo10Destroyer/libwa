@@ -45,6 +45,12 @@ function harness(selfId: string | null = SELF_ID): Harness {
       cacheRaw(chatId: ChatId, messageId: string, message: WAMessage) {
         cached.set(`${chatId}:${messageId}`, message);
       },
+      cacheRawIfAbsent(chatId: ChatId, messageId: string, message: WAMessage) {
+        const key = `${chatId}:${messageId}`;
+        if (!cached.has(key)) {
+          cached.set(key, message);
+        }
+      },
       createDownloader() {
         return async () => {
           harnessRef.downloads += 1;
@@ -106,6 +112,20 @@ describe("mapIncomingMessage", () => {
     );
     expect(event?.authorId).toBe(SELF_ID);
     expect(event?.isFromMe).toBe(true);
+    expect(event?.authorName).toBeUndefined();
+  });
+
+  it("treats an empty push name as no name", () => {
+    const { context } = harness();
+    const event = mapIncomingMessage(
+      {
+        key: { remoteJid: "111@s.whatsapp.net", id: "M3", fromMe: false },
+        message: { conversation: "hi" },
+        messageTimestamp: TIMESTAMP,
+        pushName: "",
+      },
+      context,
+    );
     expect(event?.authorName).toBeUndefined();
   });
 
@@ -789,13 +809,38 @@ describe("mapReaction", () => {
       context,
     );
     expect(event).toMatchObject({
-      id: "reaction:111@s.whatsapp.net:MSG1:222@s.whatsapp.net",
       chatId: "111@s.whatsapp.net",
       messageId: "MSG1",
       reactorId: "222@s.whatsapp.net",
       emoji: "👍",
     });
+    expect(event?.id).toMatch(
+      /^reaction:111@s\.whatsapp\.net:MSG1:222@s\.whatsapp\.net:1700000000000:\d+$/,
+    );
     expect(event?.timestamp).toEqual(new Date(1_700_000_000_000));
+  });
+
+  it("gives a reaction and its replacement distinct ids", () => {
+    const { context } = harness();
+    const base = {
+      key: { remoteJid: "111@s.whatsapp.net", id: "MSG1", fromMe: false },
+    };
+    const added = mapReaction(
+      { ...base, reaction: { key: base.key, text: "👍", senderTimestampMs: 1_700_000_000_000 } },
+      context,
+    );
+    const changed = mapReaction(
+      { ...base, reaction: { key: base.key, text: "❤", senderTimestampMs: 1_700_000_000_000 } },
+      context,
+    );
+    const removed = mapReaction(
+      { ...base, reaction: { key: base.key, text: null, senderTimestampMs: 1_700_000_000_000 } },
+      context,
+    );
+    expect(added?.id).toBeTruthy();
+    expect(changed?.id).toBeTruthy();
+    expect(removed?.id).toBeTruthy();
+    expect(new Set([added?.id, changed?.id, removed?.id]).size).toBe(3);
   });
 
   it("maps own reactions to the logged-in user", () => {
@@ -908,13 +953,41 @@ describe("mapGroupUpdates", () => {
     expect(events[0]?.groupId).toBe("123456789@g.us");
   });
 
-  it("normalizes cleared descriptions", () => {
+  it("emits a cleared description as undefined", () => {
     const { context } = harness();
     const events = mapGroupUpdates(
       [{ id: "123456789@g.us", desc: null }] as unknown as Partial<ProviderGroupMetadata>[],
       context,
     );
-    expect(events[0]?.changes.description).toBe("");
+    expect(events).toHaveLength(1);
+    expect(events[0]?.changes).toEqual({ description: undefined });
+    expect("description" in (events[0]?.changes ?? {})).toBe(true);
+  });
+
+  it("emits an explicitly undefined description as a clear", () => {
+    const { context } = harness();
+    // The provider type declares `desc: string`, but the clear path sends the
+    // key with an undefined value — which is exactly what key presence catches.
+    const events = mapGroupUpdates(
+      [{ id: "123456789@g.us", desc: undefined }] as unknown as Partial<ProviderGroupMetadata>[],
+      context,
+    );
+    expect(events).toHaveLength(1);
+    expect("description" in (events[0]?.changes ?? {})).toBe(true);
+  });
+
+  it("keeps ids unique when several updates arrive at once", () => {
+    const { context } = harness();
+    const events = mapGroupUpdates(
+      [
+        { id: "123456789@g.us", subject: "A" },
+        { id: "123456789@g.us", subject: "B" },
+        { id: "123456789@g.us", announce: true },
+      ],
+      context,
+    );
+    expect(events).toHaveLength(3);
+    expect(new Set(events.map((event) => event.id)).size).toBe(3);
   });
 
   it("skips empty and unusable patches", () => {
@@ -989,6 +1062,23 @@ describe("mapGroupMetadata", () => {
       "gustavo",
       undefined,
       undefined,
+    ]);
+  });
+
+  it("drops empty participant names and falls back to notify", () => {
+    const mapped = mapGroupMetadata({
+      id: "123456789@g.us",
+      subject: "Names",
+      participants: [
+        { id: "111@s.whatsapp.net", admin: null, name: "", notify: "" },
+        { id: "222@s.whatsapp.net", admin: null, name: "", notify: "Bob" },
+        { id: "333@s.whatsapp.net", admin: null, name: "Carol" },
+      ] as ProviderGroupParticipant[],
+    } as unknown as ProviderGroupMetadata);
+    expect(mapped.participants.map((participant) => participant.name)).toEqual([
+      undefined,
+      "Bob",
+      "Carol",
     ]);
   });
 });

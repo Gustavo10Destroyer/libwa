@@ -8,6 +8,7 @@ import type {
   WAMessageKey,
 } from "@whiskeysockets/baileys";
 import type { DisconnectReason } from "../../core/DisconnectReason.js";
+import { LruMap } from "../../core/LruMap.js";
 import type { ChatId, Unsubscribe, UserId } from "../../core/ids.js";
 import type { GroupMetadata } from "../../entities/Chat.js";
 import { phoneFromId } from "../../entities/User.js";
@@ -87,6 +88,8 @@ export interface BaileysBackendOptions {
 
 const DEFAULT_BROWSER: readonly [string, string, string] = ["libwa", "1.0.0", "1"];
 const RAW_CACHE_LIMIT = 500;
+/** Provider group snapshots kept for `cachedGroupMetadata` (full participant lists). */
+const GROUP_META_CACHE_LIMIT = 512;
 const PROFILE_PICTURE_TIMEOUT_MS = 10_000;
 
 /** Creates a backend backed by the Baileys provider. */
@@ -99,7 +102,7 @@ class BaileysBackend implements WhatsAppBackend {
   readonly #options: BaileysBackendOptions;
   readonly #events: TypedEventEmitter<BackendEventMap>;
   readonly #rawCache = new Map<string, WAMessage>();
-  readonly #groupMetaCache = new Map<ChatId, ProviderGroupMetadata>();
+  readonly #groupMetaCache = new LruMap<ProviderGroupMetadata>(GROUP_META_CACHE_LIMIT);
 
   #logger: Logger = nullLogger;
   #connectOptions: BackendConnectOptions | undefined;
@@ -110,6 +113,7 @@ class BaileysBackend implements WhatsAppBackend {
   #status: "closed" | "connecting" | "open" = "closed";
   #selfId: string | undefined;
   #pairingRequested = false;
+  #pairingAttempt = 0;
   #suppressEvents = false;
 
   constructor(options: BaileysBackendOptions) {
@@ -128,21 +132,35 @@ class BaileysBackend implements WhatsAppBackend {
     this.#logger = options.logger;
     this.#suppressEvents = false;
     this.#pairingRequested = false;
+    // Claim the generation before the first await: a disconnect()/logout()
+    // racing this attempt bumps it, and the checks below then abandon the
+    // attempt instead of creating a socket nobody can see or close (M6).
+    const generation = ++this.#generation;
 
     await this.#teardownSocket();
-    const generation = ++this.#generation;
+    if (generation !== this.#generation) {
+      return;
+    }
     this.#status = "connecting";
 
     const session = await options.sessionStore.load(options.sessionId);
-    this.#auth = await createBaileysAuth(session, {
+    if (generation !== this.#generation) {
+      return;
+    }
+
+    const auth = await createBaileysAuth(session, {
       store: options.sessionStore,
       sessionId: options.sessionId,
       provider: this.id,
       logger: options.logger,
     });
+    if (generation !== this.#generation) {
+      return;
+    }
+    this.#auth = auth;
 
     const socket = makeWASocket({
-      auth: this.#auth.auth,
+      auth: auth.auth,
       logger: createProviderLogger(options.logger),
       browser: [...(this.#options.browser ?? DEFAULT_BROWSER)],
       emitOwnEvents: false,
@@ -156,7 +174,7 @@ class BaileysBackend implements WhatsAppBackend {
     this.#unwire = this.#wireEvents(socket, generation);
 
     this.#emitConnection({ status: "connecting" });
-    if (this.#auth.auth.creds.me === undefined && options.pairingPhoneNumber !== undefined) {
+    if (options.pairingPhoneNumber !== undefined && this.#needsPairing()) {
       this.#startPairingRequest(socket, generation, options.pairingPhoneNumber);
     }
   }
@@ -317,12 +335,18 @@ class BaileysBackend implements WhatsAppBackend {
 
   async requestPairingCode(phoneNumber: string): Promise<string> {
     const socket = this.#requireSocket();
+    const attempt = ++this.#pairingAttempt;
     this.#pairingRequested = true;
     try {
       const code = await socket.requestPairingCode(phoneNumber);
       this.#emitConnection({ status: "connecting", pairingCode: code });
       return code;
     } catch (error) {
+      if (attempt === this.#pairingAttempt) {
+        // Only the newest attempt may re-arm auto pairing; a stale failure
+        // must not invalidate a code a later request already issued.
+        this.#pairingRequested = false;
+      }
       rethrowAsBackendError("Request pairing code", error);
     }
   }
@@ -624,13 +648,31 @@ class BaileysBackend implements WhatsAppBackend {
       cacheRaw: (chatId, messageId, message) => {
         this.#cacheRaw(chatId, messageId, message);
       },
+      cacheRawIfAbsent: (chatId, messageId, message) => {
+        this.#cacheRawIfAbsent(chatId, messageId, message);
+      },
       createDownloader: (chatId, messageId) => () => this.downloadMedia({ chatId, messageId }),
     };
   }
 
+  /**
+   * True while pairing must (re)start: the session is not registered yet and
+   * either has no identity at all or only the `'~'` placeholder that Baileys
+   * persists for the first pairing-code request. The placeholder is not a
+   * logged-in identity, so automatic pairing can restart on every reconnect
+   * until the companion registration completes.
+   */
+  #needsPairing(): boolean {
+    const creds = this.#auth?.auth.creds;
+    if (creds === undefined || creds.registered === true) {
+      return false;
+    }
+    return creds.me === undefined || creds.me.name === "~";
+  }
+
   #maybeStartPairing(socket: ProviderSocket, generation: number): void {
     const phone = this.#connectOptions?.pairingPhoneNumber;
-    if (phone === undefined || this.#pairingRequested || this.#auth?.auth.creds.me !== undefined) {
+    if (phone === undefined || this.#pairingRequested || !this.#needsPairing()) {
       return;
     }
     this.#startPairingRequest(socket, generation, phone);
@@ -640,6 +682,7 @@ class BaileysBackend implements WhatsAppBackend {
     if (this.#pairingRequested) {
       return;
     }
+    const attempt = ++this.#pairingAttempt;
     this.#pairingRequested = true;
     void socket
       .requestPairingCode(phoneNumber)
@@ -650,6 +693,11 @@ class BaileysBackend implements WhatsAppBackend {
       })
       .catch((error: unknown) => {
         this.#logger.warn("failed to request pairing code:", errorMessage(error));
+        if (generation === this.#generation && attempt === this.#pairingAttempt) {
+          // Re-arm so the next `qr`/`connecting` update retries instead of
+          // leaving the documented automatic flow dead for this session.
+          this.#pairingRequested = false;
+        }
       });
   }
 
@@ -664,6 +712,13 @@ class BaileysBackend implements WhatsAppBackend {
       }
       this.#rawCache.delete(oldest);
     }
+  }
+
+  #cacheRawIfAbsent(chatId: ChatId, messageId: string, message: WAMessage): void {
+    if (this.#rawCache.has(`${chatId}:${messageId}`)) {
+      return;
+    }
+    this.#cacheRaw(chatId, messageId, message);
   }
 
   #lookupRaw(chatId: ChatId, messageId: string): WAMessage | undefined {

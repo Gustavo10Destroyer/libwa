@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -99,6 +99,54 @@ describe("FileSessionStore", () => {
   it("reports corrupt session files", async () => {
     await writeFile(join(directory, "bad.json"), "{not json", "utf8");
     await expect(store.load("bad")).rejects.toMatchObject({ code: "ERR_SESSION_CORRUPT" });
+  });
+
+  it("reports non-object session files as corrupt", async () => {
+    await writeFile(join(directory, "nullish.json"), "null", "utf8");
+    await expect(store.load("nullish")).rejects.toMatchObject({ code: "ERR_SESSION_CORRUPT" });
+  });
+
+  it("reports wrong-typed session fields as corrupt instead of throwing a TypeError", async () => {
+    const malformed = JSON.stringify({
+      provider: "baileys",
+      data: 42,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await writeFile(join(directory, "typed.json"), malformed, "utf8");
+    await expect(store.load("typed")).rejects.toMatchObject({ code: "ERR_SESSION_CORRUPT" });
+    await expect(store.load("typed")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("reports an unparseable updatedAt as corrupt", async () => {
+    await writeFile(
+      join(directory, "date.json"),
+      JSON.stringify({ provider: "baileys", data: "AQID", updatedAt: "not a date" }),
+      "utf8",
+    );
+    await expect(store.load("date")).rejects.toMatchObject({ code: "ERR_SESSION_CORRUPT" });
+  });
+
+  it("fails on an unreadable session file instead of reporting no session", async () => {
+    // A directory at the session path makes readFile fail with EISDIR: only
+    // ENOENT may be translated into "no session".
+    await mkdir(join(directory, "blocked.json"));
+    await expect(store.load("blocked")).rejects.toMatchObject({
+      code: "ERR_SESSION_UNREADABLE",
+    });
+    await expect(store.load("blocked")).rejects.toBeInstanceOf(ValidationError);
+    expect(await store.load("nope")).toBeNull();
+  });
+
+  it("keeps concurrent writers from different stores from tearing the file", async () => {
+    const other = new FileSessionStore({ directory });
+    for (let round = 0; round < 5; round += 1) {
+      const short = session("bot", { data: new Uint8Array([round]) });
+      const long = session("bot", { data: new Uint8Array(4096).fill(round + 1) });
+      await Promise.all([store.save(short), other.save(long)]);
+      const loaded = await store.load("bot");
+      expect(loaded).not.toBeNull();
+      expect(loaded?.data.length).toBeGreaterThan(0);
+    }
   });
 
   it("serializes concurrent writes to the same slot", async () => {

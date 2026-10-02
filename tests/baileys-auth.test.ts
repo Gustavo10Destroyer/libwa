@@ -79,6 +79,61 @@ describe("createBaileysAuth", () => {
     expect(save).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for an in-flight write before resolving flush", async () => {
+    const store = new MemorySessionStore();
+    const handle = await createBaileysAuth(null, options(store, spyLogger()));
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const save = store.save.bind(store);
+    vi.spyOn(store, "save").mockImplementation(async (session: Session) => {
+      await gate;
+      await save(session);
+    });
+
+    const pending = handle.persistCreds();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    let flushed = false;
+    const flushing = handle.flush().then(() => {
+      flushed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(flushed).toBe(false);
+
+    release();
+    await pending;
+    await flushing;
+    expect(flushed).toBe(true);
+    expect(await store.load("default")).not.toBeNull();
+  });
+
+  it("waits for writes scheduled while flush was waiting", async () => {
+    const store = new MemorySessionStore();
+    const handle = await createBaileysAuth(null, options(store, spyLogger()));
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const save = store.save.bind(store);
+    vi.spyOn(store, "save").mockImplementation(async (session: Session) => {
+      await gate;
+      await save(session);
+    });
+
+    const first = handle.persistCreds();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const flushing = handle.flush();
+    const second = handle.persistCreds();
+
+    release();
+    await Promise.all([first, second, flushing]);
+    expect(await store.load("default")).not.toBeNull();
+  });
+
   it("persists when signal keys change", async () => {
     const store = new MemorySessionStore();
     const save = vi.spyOn(store, "save");

@@ -10,6 +10,7 @@ import type {
 } from "@whiskeysockets/baileys";
 import type { Attachment, ContactCard, MediaKind, MessageContent } from "../../core/content.js";
 import type { ChatId, UserId } from "../../core/ids.js";
+import { nextSequence } from "../../core/sequence.js";
 import type {
   ChatKind,
   GroupMetadata as DomainGroupMetadata,
@@ -43,6 +44,13 @@ export interface MapperContext {
   readonly selfId: string | undefined;
   /** Caches a raw provider message so it can be quoted/downloaded later. */
   cacheRaw(chatId: ChatId, messageId: string, message: WAMessage): void;
+  /**
+   * Caches a synthetic payload (a quote reconstructed from context info) only
+   * when no raw message is stored under the key yet — a real message must
+   * never be clobbered by its quote-side reconstruction, or later edits,
+   * deletions and reactions would send the wrong provider key.
+   */
+  cacheRawIfAbsent(chatId: ChatId, messageId: string, message: WAMessage): void;
   /** Builds a lazy media downloader for a (cached) message. */
   createDownloader(chatId: ChatId, messageId: string): () => Promise<Uint8Array>;
 }
@@ -502,7 +510,7 @@ function buildReference(
     if (present(participant)) {
       syntheticKey.participant = participant;
     }
-    mapperContext.cacheRaw(chatId, quotedId, { key: syntheticKey, message: quotedMessage });
+    mapperContext.cacheRawIfAbsent(chatId, quotedId, { key: syntheticKey, message: quotedMessage });
     const inner = unwrapMessage(quotedMessage);
     if (inner !== undefined) {
       content = extractContent(inner, mapperContext, chatId, quotedId)?.content;
@@ -559,7 +567,7 @@ export function mapIncomingMessage(
     chatId,
     chatKind: mapChatKind(chatId),
     authorId: resolveAuthorId(key, context.selfId, chatId),
-    authorName: message.pushName ?? undefined,
+    authorName: present(message.pushName) ? message.pushName : undefined,
     timestamp: providerDate(message.messageTimestamp),
     content: extraction.content,
     isFromMe: key.fromMe === true,
@@ -676,13 +684,17 @@ export function mapReaction(
   const emoji = present(reaction.text) ? reaction.text : null;
   const reactorId = resolveReactionReactor(reaction.key, context.selfId, chatId);
   const millis = numericValue(reaction.senderTimestampMs);
+  const timestamp = millis !== undefined && millis > 0 ? new Date(millis) : new Date();
   return {
-    id: `reaction:${chatId}:${key.id}:${reactorId}`,
+    // The timestamp keeps "react" and "change reaction" on one message from
+    // sharing an id when the provider stamps them differently; the sequence
+    // covers the fallback case where both arrive untimestamped in one ms.
+    id: `reaction:${chatId}:${key.id}:${reactorId}:${timestamp.getTime()}:${nextSequence()}`,
     chatId,
     chatKind: mapChatKind(chatId),
     messageId: key.id,
     reactorId,
-    timestamp: millis !== undefined && millis > 0 ? new Date(millis) : new Date(),
+    timestamp,
     emoji,
     ...idPairsField([
       ...keyIdPairs(key),
@@ -733,10 +745,10 @@ export function mapGroupParticipants(
 }
 
 interface MutableChanges {
-  name?: string;
-  description?: string;
-  announceOnly?: boolean;
-  locked?: boolean;
+  name?: string | undefined;
+  description?: string | undefined;
+  announceOnly?: boolean | undefined;
+  locked?: boolean | undefined;
 }
 
 /** Maps provider group metadata patches onto domain update events. */
@@ -750,7 +762,9 @@ export function mapGroupUpdates(
     const groupId = normalizeJid(update.id);
     const changes: MutableChanges = {};
     if (present(update.subject)) changes.name = update.subject;
-    if (update.desc !== undefined) changes.description = update.desc ?? "";
+    // Key presence, not value: clearing a description emits `desc: undefined`
+    // (or `null`), and an absent key must stay "no change".
+    if ("desc" in update) changes.description = update.desc ?? undefined;
     if (update.announce !== undefined && update.announce !== null) {
       changes.announceOnly = update.announce;
     }
@@ -760,13 +774,24 @@ export function mapGroupUpdates(
     if (Object.keys(changes).length === 0) continue;
     const timestamp = new Date();
     events.push({
-      id: `${groupId}:update:${timestamp.getTime()}`,
+      id: `${groupId}:update:${timestamp.getTime()}:${nextSequence()}`,
       groupId,
       timestamp,
       changes: { ...changes },
     });
   }
   return events;
+}
+
+/**
+ * Display name of a provider participant: first non-empty of `name`/`notify`.
+ *
+ * Empty strings are dropped here so `displayName` falls back to the id
+ * instead of rendering `""`.
+ */
+function participantName(participant: ProviderGroupParticipant): string | undefined {
+  if (present(participant.name)) return participant.name;
+  return present(participant.notify) ? participant.notify : undefined;
 }
 
 function mapParticipant(participant: ProviderGroupParticipant): DomainGroupParticipant {
@@ -780,7 +805,7 @@ function mapParticipant(participant: ProviderGroupParticipant): DomainGroupParti
     id: normalizeJid(participant.id),
     altId: participantAltId(participant),
     role,
-    name: participant.name ?? participant.notify ?? undefined,
+    name: participantName(participant),
     username: present(participant.username) ? participant.username : undefined,
   };
 }

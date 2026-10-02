@@ -90,9 +90,19 @@ export async function createBaileysAuth(
     return chain;
   };
 
+  /**
+   * Resolves once every write scheduled so far has reached the store.
+   *
+   * `scheduled` flips false when a task *starts*, so a save already in flight
+   * would slip past a `while (scheduled)` check. Await the chain tail instead,
+   * and keep waiting while new writes got scheduled along the way.
+   */
   const flush = async (): Promise<void> => {
-    while (scheduled) {
-      await chain;
+    let tail = chain;
+    await tail;
+    while (chain !== tail) {
+      tail = chain;
+      await tail;
     }
   };
 
