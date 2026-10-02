@@ -59,13 +59,13 @@ export abstract class Interaction {
   /** Who caused this interaction (author, reactor, actor), when known. */
   readonly author: User | undefined;
   /**
-   * The author's membership in {@link group} — role and tag inside this
-   * specific group, wrapping the same {@link author} entity.
+   * The author's membership in {@link group} — role inside this specific
+   * group, wrapping the same {@link author} entity.
    *
    * `undefined` outside group chats, for system events without an author,
-   * when group metadata is not known yet, or when the author is not a
-   * participant of the group. Group-scoped by design: roles and tags never
-   * live on {@link User}.
+   * when group metadata could not be resolved, or when the author is not a
+   * participant of the group. Group-scoped by design: roles never live on
+   * {@link User}.
    */
   readonly member: GroupMember | undefined;
   /** Whether the logged-in account caused this interaction. */

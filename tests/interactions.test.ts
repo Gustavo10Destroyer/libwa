@@ -297,7 +297,7 @@ describe("interaction.member", () => {
   const OWNER = "111@s.whatsapp.net";
   const PLAIN = "222@s.whatsapp.net";
 
-  it("exposes the author's role, tag and user for group messages", () => {
+  it("exposes the author's role and user for group messages", () => {
     const { factory, entities } = harness();
     entities.applyGroupMetadata(groupMetadataFixture());
     const interaction: Interaction = factory.fromMessage(
@@ -306,7 +306,6 @@ describe("interaction.member", () => {
 
     expect(interaction.isFromGroup()).toBe(true);
     expect(interaction.member?.role).toBe("admin");
-    expect(interaction.member?.tag).toBe("Owner");
     expect(interaction.member?.user).toBe(interaction.author);
     expect(interaction.member?.user.id).toBe(OWNER);
   });
@@ -319,7 +318,7 @@ describe("interaction.member", () => {
       reactionEvent({ chatId: GROUP_ID, chatKind: "group", reactorId: PLAIN }),
     );
     expect(reaction.member?.role).toBe("member");
-    expect(reaction.member?.tag).toBeUndefined();
+    expect(reaction.member?.user).toBe(reaction.author);
 
     const participants = factory.fromGroupParticipants(groupParticipantsEvent());
     expect(participants.member?.role).toBe("admin");
@@ -360,7 +359,6 @@ describe("interaction.member", () => {
       messageEvent({ chatId: GROUP_ID, chatKind: "group", authorId: PN, authorName: undefined }),
     );
     expect(byPn.member?.role).toBe("admin");
-    expect(byPn.member?.tag).toBe("gustavo");
     expect(byPn.member?.user).toBe(byPn.author);
     expect(byPn.member?.user.id).toBe(PN);
 
@@ -368,7 +366,7 @@ describe("interaction.member", () => {
       messageEvent({ id: "msg-2", chatId: GROUP_ID, chatKind: "group", authorId: LID }),
     );
     expect(byLid.member?.role).toBe("admin");
-    expect(byLid.member?.tag).toBe("gustavo");
+    expect(byLid.member?.user.id).toBe(LID);
   });
 });
 

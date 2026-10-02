@@ -304,7 +304,6 @@ describe("Client interaction dispatch", () => {
     await vi.waitFor(() => expect(received).toHaveLength(1));
     expect(backend.metadataCalls).toEqual(["123456789@g.us"]);
     expect(received[0]?.member?.role).toBe("admin");
-    expect(received[0]?.member?.tag).toBe("Owner");
 
     // The cached metadata answers the next messages without another fetch.
     backend.emit(
@@ -318,7 +317,6 @@ describe("Client interaction dispatch", () => {
     );
     await vi.waitFor(() => expect(received).toHaveLength(2));
     expect(received[1]?.member?.role).toBe("member");
-    expect(received[1]?.member?.tag).toBeUndefined();
     expect(backend.metadataCalls).toHaveLength(1);
 
     // Reactions in the same group reuse the cached metadata too.

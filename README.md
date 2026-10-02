@@ -21,7 +21,7 @@ await client.login();
 - **Provider-agnostic core** — the library core never imports Baileys; providers sit behind the `WhatsAppBackend` contract. Public `.d.ts` files are verified leak-free by `npm run check:exports`.
 - **First-class commands** — prefixes, aliases, args, `groupOnly` / `dmOnly`, `client.commands.register()`.
 - **LID-aware identity** — WhatsApp's linked ids (`…@lid`) are paired with phone numbers as they arrive; `client.users.resolvePhone(id)` / `client.users.resolveLid(id)` fill the remaining gaps, `client.users.fetch(id)` checks whether an account exists under either id scheme, and `pictureUrl(id)` / `about(id)` / `accountType(id)` pull profile data behind optional backend capabilities.
-- **Group context** — group interactions carry `interaction.member` (the author's `role`, `tag` and `user` inside that group), with `group.members` and `group.member(id)` offering the same group-scoped view.
+- **Group context** — group interactions carry `interaction.member` (the author's `role` and `user` inside that group), with `group.members` and `group.member(id)` offering the same group-scoped view.
 - **Middleware pipeline** — rate limiting, chat filters, permissions: `client.use((interaction, next) => …)`.
 - **Sessions** — opaque, backend-owned session blobs persisted through `SessionStore` (filesystem by default, memory for tests, bring your own).
 - **Typed events & errors** — fully inferred listener arguments, a stable `WhatsAppError` hierarchy with machine-readable codes.
@@ -93,7 +93,7 @@ Every backend event is normalized into an `Interaction`. Narrow with guards:
 | `isButton()` | `ButtonInteraction` | `.buttonId`, `.title`, `.displayText`, `.variant` |
 | `isList()` | `ListInteraction` | `.rowId`, `.title`, `.description` |
 
-Every interaction carries `.chat`; when `isFromGroup()` is true it narrows so `.group` is typed `Group` (undefined for direct chats). Group interactions are dispatched with freshly fetched group metadata (once per group, cached afterwards), so `.group.members` is current — and every interaction exposes `.member`, the author's group-scoped `{ user, role, tag }` (undefined outside groups or when metadata is unknown).
+Every interaction carries `.chat`; when `isFromGroup()` is true it narrows so `.group` is typed `Group` (undefined for direct chats). Group interactions are dispatched with freshly fetched group metadata (once per group, cached afterwards), so `.group.members` is current — and every interaction exposes `.member`, the author's group-scoped `{ user, role }` (undefined outside groups or when metadata is unknown).
 
 Content is a discriminated union (`content.kind`): `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `buttonReply`, `listReply`, `unknown` — plus `isText()` / `isImage()` / … guards that narrow `content` at compile time.
 

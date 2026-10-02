@@ -409,7 +409,7 @@ export class Client {
    * Builds and dispatches a message-family interaction (message, command,
    * reaction, edit/delete). Group chats first ensure metadata is known —
    * fetching it when nothing is cached yet, once per group — so
-   * `interaction.member` can answer with the author's role and tag. A failed
+   * `interaction.member` can answer with the author's role. A failed
    * fetch logs a warning and dispatch proceeds without metadata, never
    * blocked or dropped.
    */

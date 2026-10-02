@@ -95,6 +95,7 @@ export interface GroupParticipant {
    */
   readonly altId?: UserId | undefined;
   readonly role: GroupRole;
+  /** Provider-reported participant label, when the provider supplies one (seeds the member's name). */
   readonly name: string | undefined;
   /** Provider-reported `@handle` for this participant, when present. */
   readonly username?: string | undefined;
@@ -106,17 +107,15 @@ export type GroupRole = "member" | "admin" | "superadmin";
 /**
  * Membership of a {@link User} inside one specific group.
  *
- * Group-scoped counterpart of {@link User}: roles and tags exist only per
- * group, never globally, so a `GroupMember` always pairs the account-level
- * `user` with the group-level `role` and `tag`.
+ * Group-scoped counterpart of {@link User}: roles exist only per group,
+ * never globally, so a `GroupMember` always pairs the account-level `user`
+ * with the group-level `role`.
  */
 export interface GroupMember {
   /** The account-level entity for this member (same instance as the interaction author when built from one). */
   readonly user: User;
   /** Role inside this group: `member`, `admin` or `superadmin`. */
   readonly role: GroupRole;
-  /** The member's label in this group — the name recorded in group metadata, else their `@handle`. */
-  readonly tag: string | undefined;
 }
 
 /** Full, normalized metadata of a group. */
@@ -194,17 +193,16 @@ export class Group extends Chat {
     return ownerId === undefined ? undefined : this.#makeUser(ownerId);
   }
 
-  /** Known members with their group-scoped role/tag (empty until metadata has been fetched). */
+  /** Known members with their group-scoped role (empty until metadata has been fetched). */
   get members(): readonly GroupMember[] {
     return (this.#metadata?.participants ?? []).map((participant) => ({
       user: this.#makeUser(participant.id, participant.name),
       role: participant.role,
-      tag: participant.name ?? participant.username ?? undefined,
     }));
   }
 
   /**
-   * Membership of one account in this group — `role`, `tag` and `user` — when
+   * Membership of one account in this group — `role` and `user` — when
    * metadata is known and the account is a participant. Accepts a `User`
    * entity (kept as-is inside the member) or a raw id in either addressing
    * scheme; ids are matched across schemes through recorded id pairs.
@@ -218,7 +216,6 @@ export class Group extends Chat {
     return {
       user: typeof target === "string" ? this.#makeUser(participant.id, participant.name) : target,
       role: participant.role,
-      tag: participant.name ?? participant.username ?? undefined,
     };
   }
 

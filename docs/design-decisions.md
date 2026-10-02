@@ -118,11 +118,11 @@ Short ADR-style notes on why libwa is shaped the way it is. Each entry: context 
 
 ## 17. Group membership is group-scoped
 
-**Context.** A role (`admin`) and a tag (group label) only mean something inside one group, while `User` is account-level and recreated per event — storing membership on it would be wrong and stale.
+**Context.** A role (`admin`) only means something inside one group, while `User` is account-level and recreated per event — storing membership on it would be wrong and stale. Providers also do not deliver group member labels: Baileys' `extractGroupMetadata` maps participants to `{ id, phoneNumber, lid, username, admin }`, so a `tag` field could only ever be `undefined` in live use.
 
-**Decision.** `Group.members` yields `GroupMember { user, role, tag }` and `Group.member(id | user)` resolves one account across both id schemes; every interaction computes `member` from `group` + `author` at construction. Group message-family interactions fetch metadata once per group before dispatch (participant/update events always refresh), so the answer is current without a refetch per message.
+**Decision.** `Group.members` yields `GroupMember { user, role }` and `Group.member(id | user)` resolves one account across both id schemes; every interaction computes `member` from `group` + `author` at construction. Group message-family interactions fetch metadata once per group before dispatch (participant/update events always refresh), so the answer is current without a refetch per message. A `tag` field shipped in 0.2.0 and was removed in 0.3.0 once the provider gap was confirmed — `GroupParticipant.name`/`username` stay as raw provider-reported metadata and still seed the member's remembered `user.name`.
 
-**Consequence.** `interaction.member?.role === "admin"` works everywhere in group chats; `User` stays a cheap value object. Breaking in 0.2.0: `Group.members` returns `GroupMember[]`, not `User[]`.
+**Consequence.** `interaction.member?.role === "admin"` works everywhere in group chats; `User` stays a cheap value object. Breaking: `Group.members` returns `GroupMember[]` (0.2.0), and `GroupMember.tag` is gone (0.3.0).
 
 ## 18. Profile enrichment rides optional capabilities
 

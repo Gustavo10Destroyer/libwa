@@ -28,7 +28,7 @@ libwa is organized as a small core with a hard boundary around provider code.
 
 - Resolves options (`ClientOptions` → defaults) and constructs services.
 - Subscribes to the six normalized backend events exactly once per instance.
-- Converts backend events into interactions (`InteractionFactory`) — refreshing group metadata first for participant/update events, and fetching it (once per group, cached afterwards) before message-family interactions in group chats — so interactions carry current members and `interaction.member` can answer with the author's role and tag; runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
+- Converts backend events into interactions (`InteractionFactory`) — refreshing group metadata first for participant/update events, and fetching it (once per group, cached afterwards) before message-family interactions in group chats — so interactions carry current members and `interaction.member` can answer with the author's role; runs the middleware chain, then dispatches to commands and `interactionCreate` listeners.
 - Owns **reconnection policy** (backoff, attempt counting, fatal-reason classification). Backends only report *why* a connection closed.
 - Owns **login bookkeeping**: `login()` returns a deferred promise resolved on first `ready`, rejected on fatal/auth failure or when retries are exhausted.
 
@@ -48,7 +48,7 @@ Value objects built by `EntityFactory`:
 - `Chat` / `Group` (one file, `Group extends Chat`; `isGroup()` is a narrowing guard), `User`, `Message`.
 - Chats and group metadata are **cached by id** so identity is stable across events (`interaction.message.chat === interaction.chat`); users are cheap and recreated.
 - **Display names are remembered.** Every push name (and provider-supplied lookup name) is stored under both id schemes, so later id-only payloads — mentions, reactions, group members, fetch results — still carry `user.name`.
-- **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role, tag }`) and `Group.member(id | user)` looks one account up across both id schemes — roles and tags never leak onto the account-level `User`.
+- **Group membership is group-scoped.** `Group.members` returns `GroupMember`s (`{ user, role }`) and `Group.member(id | user)` looks one account up across both id schemes — roles never leak onto the account-level `User`.
 - Entities expose intent-level actions (`chat.send`, `message.react`, `group.addMembers`) that delegate back to services — never to a provider.
 
 ### Interactions

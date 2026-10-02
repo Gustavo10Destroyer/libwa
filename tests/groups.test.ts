@@ -28,7 +28,7 @@ describe("GroupService", () => {
       "222@s.whatsapp.net",
     ]);
     expect(group.members.map((member) => member.role)).toEqual(["admin", "member"]);
-    expect(group.members[0]?.tag).toBe("Owner");
+    expect(group.members[0]?.user.name).toBe("Owner");
     expect(group.announceOnly).toBe(false);
     expect(group.metadata?.createdAt).toEqual(new Date(1_700_000_000_000));
   });
@@ -135,7 +135,6 @@ describe("Group member lookups", () => {
 
     const byId = group.member("111@s.whatsapp.net");
     expect(byId?.role).toBe("admin");
-    expect(byId?.tag).toBe("Owner");
     expect(byId?.user.id).toBe("111@s.whatsapp.net");
 
     const owner = byId?.user;
@@ -145,11 +144,10 @@ describe("Group member lookups", () => {
 
     const plain = group.member("222@s.whatsapp.net");
     expect(plain?.role).toBe("member");
-    expect(plain?.tag).toBeUndefined();
     expect(group.member("999@s.whatsapp.net")).toBeUndefined();
   });
 
-  it("matches across id schemes and tags participants by username", async () => {
+  it("matches across id schemes and keeps provider-reported handles", async () => {
     const LID = "987654321012345@lid";
     const PN = "5511999999999@s.whatsapp.net";
     const fixture = groupMetadataFixture(GROUP_ID);
@@ -162,9 +160,8 @@ describe("Group member lookups", () => {
     const group = await client.groups.fetch(GROUP_ID);
 
     expect(group.member(LID)?.role).toBe("superadmin");
-    expect(group.member(LID)?.tag).toBe("gustavo");
     expect(group.member(PN)?.role).toBe("superadmin");
-    expect(group.member(PN)?.tag).toBe("gustavo");
+    expect(group.metadata?.participants[0]?.username).toBe("gustavo");
   });
 
   it("stays undefined while metadata is unknown", () => {
