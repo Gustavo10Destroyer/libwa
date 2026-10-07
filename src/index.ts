@@ -123,6 +123,10 @@ export { createConsoleLogger, nullLogger, type Logger } from "./logging/Logger.j
 export type { Session, SessionStore } from "./auth/SessionStore.js";
 export { FileSessionStore, type FileSessionStoreOptions } from "./auth/FileSessionStore.js";
 export { MemorySessionStore } from "./auth/MemorySessionStore.js";
+export {
+  SqliteSessionStore,
+  type SqliteSessionStoreOptions,
+} from "./auth/SqliteSessionStore.js";
 
 // --- backend contract ---------------------------------------------------------------
 

@@ -122,7 +122,7 @@ Session { id, provider, data: Uint8Array, updatedAt }
 - The core treats `data` as an opaque blob; only the owning backend interprets it (Baileys: `{ v, creds, keys }` JSON via `BufferJSON`).
 - Provider mismatch (blob written by another backend id) → warn + fresh creds; corrupt/unsupported blobs → `ValidationError` (fail fast, clear session to recover).
 - Writes are **coalesced**: bursts of key updates collapse into one store write; `flush()` drains the chain (used on disconnect).
-- Stores: `FileSessionStore` (atomic temp+rename, per-slot write queue, id validation) and `MemorySessionStore`.
+- Stores: `FileSessionStore` (atomic temp+rename, per-slot write queue, id validation), `SqliteSessionStore` (one WAL-mode database for every slot — the production default for real deployments), and `MemorySessionStore`.
 
 ## Reconnection (client-owned)
 

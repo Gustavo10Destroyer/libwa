@@ -2,19 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ValidationError } from "../errors/index.js";
-import type { Session, SessionStore } from "./SessionStore.js";
-
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** Validates a session id so it can never escape the store directory. */
-export function assertSafeSessionId(id: string): void {
-  if (!SESSION_ID_PATTERN.test(id)) {
-    throw new ValidationError(
-      `Invalid session id "${id}": use 1-64 characters from [A-Za-z0-9_-].`,
-      { code: "ERR_SESSION_ID" },
-    );
-  }
-}
+import { type Session, type SessionStore, assertSafeSessionId } from "./SessionStore.js";
 
 interface SessionFile {
   provider: string;

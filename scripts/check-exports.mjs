@@ -3,14 +3,15 @@
  * Public API surface guard.
  *
  * Verifies that the published type surface (dist/index.d.ts and everything
- * reachable from it through relative imports) never exposes Baileys:
+ * reachable from it through relative imports) never exposes implementation
+ * dependencies:
  *
- *  1. dist/index.d.ts must exist and contain no forbidden provider tokens.
+ *  1. dist/index.d.ts must exist and contain no forbidden tokens.
  *  2. The package `exports` map must only expose "." and "./package.json".
  *  3. Every locally-declared file reachable from index.d.ts must not import
- *     the provider module, and its `export` lines must not mention provider
- *     type names (Baileys may only appear in unreachable internal d.ts files,
- *     which the exports map keeps consumers away from).
+ *     the provider or the SQLite driver, and its `export` lines must not
+ *     mention their type names (those modules may only appear in unreachable
+ *     internal d.ts files, which the exports map keeps consumers away from).
  *
  * Run after `npm run build`. Exits non-zero with a report on violation.
  */
@@ -22,7 +23,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(root, "dist");
 const indexDts = join(distDir, "index.d.ts");
 
-/** Provider tokens that must never appear in the public type surface. */
+/**
+ * Implementation-dependency tokens that must never appear in the public type
+ * surface. Keeping them out is what lets the provider or the database driver
+ * be replaced without touching a single consumer.
+ */
 const FORBIDDEN = [
   "@whiskeysockets/baileys",
   "WAMessage",
@@ -30,7 +35,11 @@ const FORBIDDEN = [
   "IWebMessageInfo",
   "makeWASocket",
   "proto.",
+  "better-sqlite3",
 ];
+
+/** Modules reachable declarations must not import at all. */
+const FORBIDDEN_IMPORTS = ["@whiskeysockets/baileys", "better-sqlite3"];
 
 /** Tokens that must not appear on export lines of reachable files. */
 const FORBIDDEN_TYPE_NAMES = FORBIDDEN.filter((token) => !token.includes("/"));
@@ -146,7 +155,9 @@ while (queue.length > 0) {
 // 3a. index.d.ts: no forbidden tokens anywhere (it is the whole public surface).
 for (const token of FORBIDDEN) {
   if (visited.get(indexDts)?.includes(token)) {
-    fail(`dist/index.d.ts mentions "${token}" — provider details leaked into the public API.`);
+    fail(
+      `dist/index.d.ts mentions "${token}" — an implementation dependency leaked into the public API.`,
+    );
   }
 }
 
@@ -154,23 +165,24 @@ for (const [file, source] of visited) {
   const fileName = rel(file);
   if (file === indexDts) continue; // already scanned in full above
 
-  // 3b. Reachable files must never import the provider module at all: if it is
-  // imported, the type graph forces consumers to resolve Baileys declarations.
-  if (source.includes("@whiskeysockets/baileys")) {
+  // 3b. Reachable files must never import an implementation dependency: the
+  // import would force consumers to resolve that module's declarations.
+  const imported = FORBIDDEN_IMPORTS.find((specifier) => source.includes(specifier));
+  if (imported !== undefined) {
     fail(
-      `${fileName} imports the provider module — Baileys must stay unreachable from the public type surface (keep such declarations internal to src/backend/baileys/).`,
+      `${fileName} imports "${imported}" — it must stay unreachable from the public type surface (reachable declarations describe only libwa's own contract).`,
     );
     continue;
   }
 
-  // 3c. Export lines must not mention provider type names.
+  // 3c. Export lines must not mention implementation-dependency type names.
   const lines = source.split("\n");
   for (const span of exportLines(source)) {
     const text = lines.slice(span.start, span.end + 1).join("\n");
     for (const token of FORBIDDEN_TYPE_NAMES) {
       if (text.includes(token)) {
         fail(
-          `${fileName}:${span.start + 1} exports a symbol mentioning "${token}" — provider types must not appear in the public API.`,
+          `${fileName}:${span.start + 1} exports a symbol mentioning "${token}" — dependency types must not appear in the public API.`,
         );
       }
     }
@@ -188,5 +200,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `check:exports: ok — ${visited.size} declaration file(s) reachable from dist/index.d.ts, no provider tokens in the public type surface.`,
+  `check:exports: ok — ${visited.size} declaration file(s) reachable from dist/index.d.ts, no implementation-dependency tokens in the public type surface.`,
 );

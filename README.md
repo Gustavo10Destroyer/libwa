@@ -23,7 +23,7 @@ await client.login();
 - **LID-aware identity** — WhatsApp's linked ids (`…@lid`) are paired with phone numbers as they arrive; `client.users.resolvePhone(id)` / `client.users.resolveLid(id)` fill the remaining gaps, `client.users.fetch(id)` checks whether an account exists under either id scheme, and `pictureUrl(id)` / `about(id)` / `accountType(id)` pull profile data behind optional backend capabilities.
 - **Group context** — group interactions carry `interaction.member` (the author's `role` and `user` inside that group), with `group.members` and `group.member(id)` offering the same group-scoped view.
 - **Middleware pipeline** — rate limiting, chat filters, permissions: `client.use((interaction, next) => …)`.
-- **Sessions** — opaque, backend-owned session blobs persisted through `SessionStore` (filesystem by default, memory for tests, bring your own).
+- **Sessions** — opaque, backend-owned session blobs persisted through `SessionStore` (filesystem by default, SQLite for production, memory for tests, bring your own).
 - **Typed events & errors** — fully inferred listener arguments, a stable `WhatsAppError` hierarchy with machine-readable codes.
 - **Strict TypeScript** — `strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, zero `any` in the public surface.
 
@@ -170,9 +170,13 @@ Provider errors are wrapped (`rethrowAsBackendError`) so application code never 
 ## Sessions
 
 ```ts
-import { Client, FileSessionStore, MemorySessionStore } from "libwa";
+import { Client, FileSessionStore, SqliteSessionStore } from "libwa";
 
+// default: one JSON file per slot in .libwa/
 new Client({ sessionStore: new FileSessionStore({ directory: ".libwa" }), sessionId: "work" });
+
+// production: one SQLite database holding every slot (WAL, busy-timeout, transactions)
+new Client({ sessionStore: new SqliteSessionStore({ filename: "var/bots.db" }), sessionId: "work" });
 ```
 
 Sessions are `{ id, provider, data: Uint8Array, updatedAt }` — opaque to everything but the owning backend. Multi-account bots use distinct `sessionId`s on a shared store. `client.logout()` invalidates the provider session and clears the slot; both `logout()` and `destroy()` also reset the entity and group caches, so a re-login — or a second account sharing the store in the same process — can never answer from the previous session's identity data.
@@ -206,7 +210,7 @@ See `docs/architecture.md` for the contract and `examples/` for runnable pattern
 
 ```sh
 npm run typecheck     # tsc --noEmit (src + tests + examples)
-npm test              # vitest (324 tests)
+npm test              # vitest (349 tests)
 npm run test:watch    # vitest in watch mode
 npm run test:coverage # vitest run --coverage
 npm run lint          # biome check
