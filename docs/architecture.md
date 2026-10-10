@@ -1,6 +1,6 @@
 # Architecture
 
-libwa is organized as a small core with a hard boundary around provider code.
+libwa.js is organized as a small core with a hard boundary around provider code.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

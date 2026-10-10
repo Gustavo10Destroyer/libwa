@@ -33,7 +33,7 @@ export interface SessionStore {
    * Releases resources the store holds — database handles, sockets, timers.
    *
    * Optional: stores with nothing to release omit it, and callers must use
-   * `store.close?.()` until they know which store they were handed. libwa
+   * `store.close?.()` until they know which store they were handed. libwa.js
    * never calls this on your behalf: whoever constructed the store closes it,
    * so a store shared by several clients survives any one of them shutting
    * down. Once closed, `load`/`save`/`clear` reject instead of writing to a

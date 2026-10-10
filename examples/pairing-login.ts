@@ -4,12 +4,12 @@
  * The bot prints a pairing code; enter it on the phone under
  * WhatsApp > Linked devices > Link a device.
  */
-import { Client } from "libwa";
+import { Client } from "libwa.js";
 
 const client = new Client({
   auth: { pairingPhoneNumber: process.env.WA_PHONE_NUMBER ?? "5511999999999" },
   commands: { prefix: "!" },
-  // Sessions persist to the default filesystem store in .libwa/.
+  // Sessions persist to the default filesystem store in .libwa.js/.
 });
 
 client.on("pairingCode", (code) => {

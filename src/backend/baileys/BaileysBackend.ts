@@ -86,7 +86,7 @@ export interface BaileysBackendOptions {
   readonly syncFullHistory?: boolean;
 }
 
-const DEFAULT_BROWSER: readonly [string, string, string] = ["libwa", "1.0.0", "1"];
+const DEFAULT_BROWSER: readonly [string, string, string] = ["libwa.js", "1.0.0", "1"];
 const RAW_CACHE_LIMIT = 500;
 /** Provider group snapshots kept for `cachedGroupMetadata` (full participant lists). */
 const GROUP_META_CACHE_LIMIT = 512;

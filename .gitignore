@@ -6,7 +6,7 @@ coverage/
 *.tgz
 
 # runtime state — never publish (contains logged-in credentials!)
-.libwa/
+.libwa.js/
 auth_info*/
 
 # environment & secrets

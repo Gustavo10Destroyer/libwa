@@ -170,7 +170,7 @@ for (const [file, source] of visited) {
   const imported = FORBIDDEN_IMPORTS.find((specifier) => source.includes(specifier));
   if (imported !== undefined) {
     fail(
-      `${fileName} imports "${imported}" — it must stay unreachable from the public type surface (reachable declarations describe only libwa's own contract).`,
+      `${fileName} imports "${imported}" — it must stay unreachable from the public type surface (reachable declarations describe only libwa.js's own contract).`,
     );
     continue;
   }

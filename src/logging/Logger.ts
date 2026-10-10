@@ -25,7 +25,7 @@ export const nullLogger: Logger = {
  * Useful for development; production bots should inject their own logger
  * (pino, winston, ...) by implementing {@link Logger}.
  */
-export function createConsoleLogger(prefix = "libwa"): Logger {
+export function createConsoleLogger(prefix = "libwa.js"): Logger {
   const format = (level: string, args: unknown[]): unknown[] => [`${prefix} ${level}:`, ...args];
   return {
     debug: (...args) => console.debug(...format("debug", args)),

@@ -8,7 +8,7 @@ import {
   type Middleware,
   NotFoundError,
   PermissionError,
-} from "libwa";
+} from "libwa.js";
 
 const client = new Client({
   commands: { prefix: "!", ignoreSelf: true },
@@ -94,7 +94,7 @@ client.on("error", (error) => {
 
 client.on("disconnect", (reason) => {
   if (reason === DisconnectReason.LoggedOut) {
-    console.error("Session revoked — delete .libwa/ and log in again.");
+    console.error("Session revoked — delete .libwa.js/ and log in again.");
   }
 });
 

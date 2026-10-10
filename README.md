@@ -1,14 +1,14 @@
-# libwa
+# libwa.js
 
 > [!WARNING]
-> **Beta — vibe-coded project.** This library was created with AI-assisted "vibe coding", is in **beta**, and may contain bugs. APIs can change without notice — pin your versions and please [report issues](https://github.com/Gustavo10Destroyer/libwa/issues).
+> **Beta — vibe-coded project.** This library was created with AI-assisted "vibe coding", is in **beta**, and may contain bugs. APIs can change without notice — pin your versions and please [report issues](https://github.com/Gustavo10Destroyer/libwa.js/issues).
 
 Interaction-driven WhatsApp bot library for TypeScript/Node.js — a discord.js-like DX on top of a pluggable backend, with [Baileys](https://github.com/WhiskeySockets/Baileys) as the first provider.
 
-**[Documentation](https://gustavo10destroyer.github.io/libwa-docs)** · [API reference](https://gustavo10destroyer.github.io/libwa-docs/reference/index) · [Report an issue](https://github.com/Gustavo10Destroyer/libwa/issues)
+**[Documentation](https://gustavo10destroyer.github.io/libwa.js-docs)** · [API reference](https://gustavo10destroyer.github.io/libwa.js-docs/reference/index) · [Report an issue](https://github.com/Gustavo10Destroyer/libwa.js/issues)
 
 ```ts
-import { Client } from "libwa";
+import { Client } from "libwa.js";
 
 const client = new Client();
 
@@ -34,13 +34,13 @@ await client.login();
 - Node.js ≥ 20.0.0 (ESM package; the bundled Baileys provider requires ≥ 20)
 
 ```sh
-npm install libwa
+npm install libwa.js
 ```
 
 ## Quick start
 
 ```ts
-import { Client } from "libwa";
+import { Client } from "libwa.js";
 
 const client = new Client({
   commands: { prefix: ["!", "/"] },
@@ -158,7 +158,7 @@ Reconnection is client-owned: exponential backoff (`reconnect: { attempts, initi
 **Nothing is logged by default.** The default logger is a no-op and an event with no listener is simply dropped, so failures routed to `error` (and `qr` / `pairingCode`) stay invisible until you attach a handler:
 
 ```ts
-client.on("error", (error) => console.error("libwa:", error));
+client.on("error", (error) => console.error("libwa.js:", error));
 ```
 
 ## Errors
@@ -172,10 +172,10 @@ Provider errors are wrapped (`rethrowAsBackendError`) so application code never 
 ## Sessions
 
 ```ts
-import { Client, FileSessionStore, SqliteSessionStore } from "libwa";
+import { Client, FileSessionStore, SqliteSessionStore } from "libwa.js";
 
-// default: one JSON file per slot in .libwa/
-new Client({ sessionStore: new FileSessionStore({ directory: ".libwa" }), sessionId: "work" });
+// default: one JSON file per slot in .libwa.js/
+new Client({ sessionStore: new FileSessionStore({ directory: ".libwa.js" }), sessionId: "work" });
 
 // production: one SQLite database holding every slot (WAL, busy-timeout, transactions)
 new Client({ sessionStore: new SqliteSessionStore({ filename: "var/bots.db" }), sessionId: "work" });
@@ -186,7 +186,7 @@ Sessions are `{ id, provider, data: Uint8Array, updatedAt }` — opaque to every
 ## Custom backends
 
 ```ts
-import type { WhatsAppBackend } from "libwa";
+import type { WhatsAppBackend } from "libwa.js";
 
 const backend: WhatsAppBackend = {
   id: "my-backend",
@@ -225,10 +225,10 @@ npm run verify        # typecheck → test → lint → build → check:exports
 
 ## Documentation
 
-- **[Full documentation](https://gustavo10destroyer.github.io/libwa-docs)** — getting started, sessions & stores, commands, backends, architecture, API reference and troubleshooting (English + Português)
-- [`docs/architecture.md`](https://github.com/Gustavo10Destroyer/libwa/blob/main/docs/architecture.md) — layers, event pipeline, backend contract, session model
-- [`docs/design-decisions.md`](https://github.com/Gustavo10Destroyer/libwa/blob/main/docs/design-decisions.md) — why the library is shaped the way it is
-- [`examples/`](https://github.com/Gustavo10Destroyer/libwa/tree/main/examples) — basic bot, pairing login, middleware/filters
+- **[Full documentation](https://gustavo10destroyer.github.io/libwa.js-docs)** — getting started, sessions & stores, commands, backends, architecture, API reference and troubleshooting (English + Português)
+- [`docs/architecture.md`](https://github.com/Gustavo10Destroyer/libwa.js/blob/main/docs/architecture.md) — layers, event pipeline, backend contract, session model
+- [`docs/design-decisions.md`](https://github.com/Gustavo10Destroyer/libwa.js/blob/main/docs/design-decisions.md) — why the library is shaped the way it is
+- [`examples/`](https://github.com/Gustavo10Destroyer/libwa.js/tree/main/examples) — basic bot, pairing login, middleware/filters
 
 ## License
 

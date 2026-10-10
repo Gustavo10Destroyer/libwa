@@ -1,8 +1,8 @@
 /**
- * libwa — interaction-driven WhatsApp bot library.
+ * libwa.js — interaction-driven WhatsApp bot library.
  *
  * The public API surface: consumers import everything from the package root
- * (`import { Client } from "libwa"`). Provider internals (Baileys) never
+ * (`import { Client } from "libwa.js"`). Provider internals (Baileys) never
  * appear in this surface; the default backend is created behind the
  * {@link WhatsAppBackend} contract.
  */

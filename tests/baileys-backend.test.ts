@@ -234,7 +234,7 @@ describe("BaileysBackend lifecycle", () => {
     expect(config?.auth).toBeDefined();
     expect(config?.cachedGroupMetadata).toBeTypeOf("function");
     expect(config?.getMessage).toBeTypeOf("function");
-    expect(config?.browser).toEqual(["libwa", "1.0.0", "1"]);
+    expect(config?.browser).toEqual(["libwa.js", "1.0.0", "1"]);
   });
 
   it("maps a provider close onto a library disconnect reason", async () => {

@@ -48,7 +48,7 @@ describe("FileSessionStore", () => {
   let store: FileSessionStore;
 
   beforeEach(async () => {
-    directory = await mkdtemp(join(tmpdir(), "libwa-sessions-"));
+    directory = await mkdtemp(join(tmpdir(), "libwa.js-sessions-"));
     store = new FileSessionStore({ directory });
   });
 
@@ -58,7 +58,7 @@ describe("FileSessionStore", () => {
 
   it("exposes its directory", () => {
     expect(store.directory).toBe(directory);
-    expect(new FileSessionStore().directory).toBe(".libwa");
+    expect(new FileSessionStore().directory).toBe(".libwa.js");
   });
 
   it("round-trips sessions through JSON files", async () => {

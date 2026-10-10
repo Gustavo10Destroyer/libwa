@@ -18,7 +18,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "paths": {
-      "libwa": ["./src/index.ts"]
+      "libwa.js": ["./src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "examples/**/*.ts", "vitest.config.ts"]

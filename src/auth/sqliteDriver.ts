@@ -42,8 +42,8 @@ export function resolveDriver(exported: unknown): SqliteDriver {
 
 function driverError(cause: unknown): ValidationError {
   return new ValidationError(
-    'SqliteSessionStore needs the "better-sqlite3" driver that ships with libwa, but it could not be loaded. ' +
-      "Reinstall libwa without --ignore-scripts so the native binding is built.",
+    'SqliteSessionStore needs the "better-sqlite3" driver that ships with libwa.js, but it could not be loaded. ' +
+      "Reinstall libwa.js without --ignore-scripts so the native binding is built.",
     { code: "ERR_SESSION_STORE", cause },
   );
 }
@@ -52,7 +52,7 @@ function driverError(cause: unknown): ValidationError {
  * Loads and memoizes the driver.
  *
  * The binding is native, so it is required lazily: a build that cannot load
- * it still imports `libwa` and still runs every other feature. Only
+ * it still imports `libwa.js` and still runs every other feature. Only
  * constructing a `SqliteSessionStore` fails, with an actionable error instead
  * of a load crash at import time.
  */

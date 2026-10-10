@@ -4,7 +4,7 @@
  * Run with any TS runner that understands the package exports, e.g.:
  *   npx tsx examples/basic-bot.ts
  */
-import { Client, type Interaction, type Logger } from "libwa";
+import { Client, type Interaction, type Logger } from "libwa.js";
 
 const logger: Logger = {
   debug: (...args) => console.debug("[debug]", ...args),
@@ -42,7 +42,7 @@ client.on("interactionCreate", (interaction: Interaction) => {
 });
 
 client.on("error", (error) => {
-  console.error("libwa error:", error.message);
+  console.error("libwa.js error:", error.message);
 });
 
 client.on("disconnect", (reason) => {

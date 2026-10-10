@@ -11,7 +11,7 @@ interface SessionFile {
 }
 
 export interface FileSessionStoreOptions {
-  /** Directory in which session files are stored. Defaults to `.libwa`. */
+  /** Directory in which session files are stored. Defaults to `.libwa.js`. */
   directory?: string;
 }
 
@@ -33,7 +33,7 @@ export class FileSessionStore implements SessionStore {
   readonly #writerId = randomUUID();
 
   constructor(options: FileSessionStoreOptions = {}) {
-    this.#directory = options.directory ?? ".libwa";
+    this.#directory = options.directory ?? ".libwa.js";
   }
 
   get directory(): string {

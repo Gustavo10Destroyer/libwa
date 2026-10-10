@@ -1,5 +1,5 @@
 {
-  "name": "libwa",
+  "name": "libwa.js",
   "version": "0.4.0",
   "description": "TypeScript-first, interaction-driven WhatsApp bot library — discord.js-style DX on a pluggable backend (Baileys included).",
   "type": "module",
@@ -17,11 +17,11 @@
   "files": ["dist", "docs", "LICENSE"],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Gustavo10Destroyer/libwa.git"
+    "url": "git+https://github.com/Gustavo10Destroyer/libwa.js.git"
   },
-  "homepage": "https://gustavo10destroyer.github.io/libwa-docs",
+  "homepage": "https://gustavo10destroyer.github.io/libwa.js-docs",
   "bugs": {
-    "url": "https://github.com/Gustavo10Destroyer/libwa/issues"
+    "url": "https://github.com/Gustavo10Destroyer/libwa.js/issues"
   },
   "publishConfig": {
     "access": "public"

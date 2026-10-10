@@ -8,7 +8,7 @@ export interface SqliteSessionStoreOptions {
   /**
    * Path to the database file, or `":memory:"` for a database that lives only
    * in this process. Missing parent directories are created. Defaults to
-   * `"libwa-sessions.db"` in the current working directory.
+   * `"libwa.js-sessions.db"` in the current working directory.
    */
   filename?: string;
   /**
@@ -22,12 +22,12 @@ export interface SqliteSessionStoreOptions {
   busyTimeoutMs?: number;
 }
 
-/** Default database file, kept out of `.libwa/` because it is not a directory layout. */
-const DEFAULT_FILENAME = "libwa-sessions.db";
+/** Default database file, kept out of `.libwa.js/` because it is not a directory layout. */
+const DEFAULT_FILENAME = "libwa.js-sessions.db";
 const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 /**
  * Bumped only when the table changes shape. Opening a database written by a
- * newer libwa fails loudly instead of guessing at columns it does not know.
+ * newer libwa.js fails loudly instead of guessing at columns it does not know.
  */
 const SCHEMA_VERSION = 1;
 
@@ -111,8 +111,8 @@ function openDatabase(filename: string, busyTimeoutMs: number): SqliteDatabase {
     const version = readUserVersion(db);
     if (version > SCHEMA_VERSION) {
       throw new ValidationError(
-        `Session database "${filename}" uses schema version ${version}, but this build of libwa ` +
-          `understands up to ${SCHEMA_VERSION}. Upgrade libwa rather than opening it with an older release.`,
+        `Session database "${filename}" uses schema version ${version}, but this build of libwa.js ` +
+          `understands up to ${SCHEMA_VERSION}. Upgrade libwa.js rather than opening it with an older release.`,
         { code: "ERR_SESSION_STORE" },
       );
     }

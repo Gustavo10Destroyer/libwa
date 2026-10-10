@@ -37,7 +37,7 @@ export interface ClientOptions {
    * instance (or a factory) to use/test another provider.
    */
   backend?: WhatsAppBackend | (() => WhatsAppBackend);
-  /** Session persistence. Defaults to a filesystem store in `.libwa/`. */
+  /** Session persistence. Defaults to a filesystem store in `.libwa.js/`. */
   sessionStore?: SessionStore;
   /** Session slot id when multiple accounts share one store. Defaults to `"default"`. */
   sessionId?: string;

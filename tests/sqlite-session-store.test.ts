@@ -67,7 +67,7 @@ describe("SqliteSessionStore", () => {
   }
 
   beforeEach(async () => {
-    directory = await mkdtemp(join(tmpdir(), "libwa-sqlite-"));
+    directory = await mkdtemp(join(tmpdir(), "libwa.js-sqlite-"));
   });
 
   afterEach(async () => {
@@ -268,7 +268,7 @@ describe("SqliteSessionStore", () => {
     throwsCode(() => new SqliteSessionStore({ filename: directory }), "ERR_SESSION_STORE");
   });
 
-  it("refuses a database written by a newer libwa", async () => {
+  it("refuses a database written by a newer libwa.js", async () => {
     const filename = join(directory, "future.db");
     const store = new SqliteSessionStore({ filename });
     await store.save(session("default"));
@@ -363,7 +363,7 @@ describe("SqliteSessionStore", () => {
       caught = error;
     }
     const failure = caught as ValidationError;
-    expect(failure.message).toMatch(/needs the "better-sqlite3" driver that ships with libwa/);
+    expect(failure.message).toMatch(/needs the "better-sqlite3" driver that ships with libwa.js/);
     expect(failure.message).toMatch(/--ignore-scripts/);
     expect((failure.cause as Error).message).toMatch(/does not export a Database constructor/);
   });
