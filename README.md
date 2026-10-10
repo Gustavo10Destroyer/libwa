@@ -5,6 +5,8 @@
 
 Interaction-driven WhatsApp bot library for TypeScript/Node.js — a discord.js-like DX on top of a pluggable backend, with [Baileys](https://github.com/WhiskeySockets/Baileys) as the first provider.
 
+**[Documentation](https://gustavo10destroyer.github.io/libwa-docs)** · [API reference](https://gustavo10destroyer.github.io/libwa-docs/reference/index) · [Report an issue](https://github.com/Gustavo10Destroyer/libwa/issues)
+
 ```ts
 import { Client } from "libwa";
 
@@ -223,8 +225,9 @@ npm run verify        # typecheck → test → lint → build → check:exports
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — layers, event pipeline, backend contract, session model
-- [`docs/design-decisions.md`](docs/design-decisions.md) — why the library is shaped the way it is
+- **[Full documentation](https://gustavo10destroyer.github.io/libwa-docs)** — getting started, sessions & stores, commands, backends, architecture, API reference and troubleshooting (English + Português)
+- [`docs/architecture.md`](https://github.com/Gustavo10Destroyer/libwa/blob/main/docs/architecture.md) — layers, event pipeline, backend contract, session model
+- [`docs/design-decisions.md`](https://github.com/Gustavo10Destroyer/libwa/blob/main/docs/design-decisions.md) — why the library is shaped the way it is
 - [`examples/`](https://github.com/Gustavo10Destroyer/libwa/tree/main/examples) — basic bot, pairing login, middleware/filters
 
 ## License

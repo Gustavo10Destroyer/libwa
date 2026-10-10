@@ -1,7 +1,7 @@
 {
   "name": "libwa",
   "version": "0.4.0",
-  "description": "Interaction-driven WhatsApp bot library with a pluggable backend architecture (Baileys first).",
+  "description": "TypeScript-first, interaction-driven WhatsApp bot library — discord.js-style DX on a pluggable backend (Baileys included).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +19,7 @@
     "type": "git",
     "url": "git+https://github.com/Gustavo10Destroyer/libwa.git"
   },
-  "homepage": "https://github.com/Gustavo10Destroyer/libwa#readme",
+  "homepage": "https://gustavo10destroyer.github.io/libwa-docs",
   "bugs": {
     "url": "https://github.com/Gustavo10Destroyer/libwa/issues"
   },
@@ -40,8 +40,27 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run verify"
   },
-  "keywords": ["whatsapp", "bot", "baileys", "interactions", "typescript"],
-  "author": "Gustavo10Destroyer",
+  "keywords": [
+    "whatsapp",
+    "whatsapp-bot",
+    "whatsapp-api",
+    "whatsapp-web",
+    "bot",
+    "chatbot",
+    "bot-framework",
+    "baileys",
+    "nodejs",
+    "typescript",
+    "interactions",
+    "middleware",
+    "commands",
+    "sessions",
+    "sqlite",
+    "multi-account",
+    "qr-code",
+    "pairing-code"
+  ],
+  "author": "Gustavo10Destroyer (https://github.com/Gustavo10Destroyer)",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
